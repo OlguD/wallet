@@ -2,6 +2,7 @@
 #
 # traefik: HTTPS (Let's Encrypt, HTTP-01) ve yönlendirme
 #   https://DOMAIN/api/*  → api:8080 (/api öneki kaldırılır)
+#   https://API_DOMAIN/*  → api:8080 (opsiyonel)
 #   https://DOMAIN/*      → web:80  (arayüz)
 services:
   traefik:
@@ -70,7 +71,9 @@ services:
       - edge
     labels:
       - traefik.enable=true
-      - traefik.http.routers.api.rule=Host(`${DOMAIN:?DOMAIN gerekli}`) && PathPrefix(`/api`)
+      # Uygulama: https://DOMAIN/api/* (aynı origin, cookie için). Ayrıca API_DOMAIN doğrudan API'ye gider
+      # (iOS Kestirmesi / dış istemciler); orada /api öneki yoksa stripprefix bir şey yapmaz.
+      - traefik.http.routers.api.rule=(Host(`${DOMAIN:?DOMAIN gerekli}`) && PathPrefix(`/api`)) || Host(`${API_DOMAIN:-api.invalid}`)
       - traefik.http.routers.api.entrypoints=websecure
       - traefik.http.routers.api.middlewares=api-strip,api-body,secure-headers
       - traefik.http.middlewares.api-strip.stripprefix.prefixes=/api
