@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,21 +13,39 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
+	"github.com/pressly/goose/v3"
 
 	"wallet-api/internal/accounts"
 	"wallet-api/internal/auth"
+	"wallet-api/internal/budgets"
 	"wallet-api/internal/goals"
 	"wallet-api/internal/groups"
 	"wallet-api/internal/httpx"
+	"wallet-api/internal/idem"
+	"wallet-api/internal/ledger"
+	"wallet-api/internal/notify"
 	"wallet-api/internal/rates"
 	"wallet-api/internal/receipts"
 	"wallet-api/internal/recurring"
 	"wallet-api/internal/transactions"
+	"wallet-api/migrations"
 )
 
 func main() {
+	// "wallet-api gen-vapid": bildirimler için VAPID anahtar çifti üretir.
+	if len(os.Args) > 1 && os.Args[1] == "gen-vapid" {
+		priv, pub, err := webpush.GenerateVAPIDKeys()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\n", pub, priv)
+		return
+	}
+
 	if err := godotenv.Load(); err != nil {
 		log.Println(".env dosyasi bulunamadi, sistem ortam degiskenleri kullanilacak")
 	}
@@ -58,11 +78,30 @@ func main() {
 	}
 	log.Println("veritabani baglandı")
 
+	if os.Getenv("MIGRATE_ON_START") == "true" {
+		if err := migrate(dbURL); err != nil {
+			log.Fatal("migration basarisiz: ", err)
+		}
+	}
+
+	notifier := &notify.Notifier{
+		DB:         pool,
+		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		Subject:    os.Getenv("VAPID_SUBJECT"),
+	}
+	if !notifier.PushEnabled() {
+		log.Println("VAPID anahtarlari yok: push bildirimleri kapali (uygulama ici bildirimler calisir)")
+	}
+
 	authHandler := &auth.Handler{DB: pool, SecureCookie: os.Getenv("COOKIE_SECURE") == "true"}
 	accountHandler := &accounts.Handler{DB: pool}
-	txHandler := &transactions.Handler{DB: pool, Loc: loc}
-	groupHandler := &groups.Handler{DB: pool, Loc: loc}
-	runner := &recurring.Runner{DB: pool, Loc: loc}
+	txHandler := &transactions.Handler{DB: pool, Loc: loc, Notify: notifier}
+	groupHandler := &groups.Handler{DB: pool, Loc: loc, Notify: notifier}
+	budgetHandler := &budgets.Handler{DB: pool, Loc: loc, Notify: notifier}
+	runner := &recurring.Runner{DB: pool, Loc: loc, Created: func(ctx context.Context, ruleID, txID, owner int) {
+		notifyRecurring(ctx, pool, notifier, loc, txID, owner)
+	}}
 	recurringHandler := &recurring.Handler{DB: pool, Loc: loc, Runner: runner}
 	goalHandler := &goals.Handler{DB: pool, Loc: loc}
 	rateHandler := rates.New(loc)
@@ -82,11 +121,29 @@ func main() {
 	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
 
 	// Oturum gerektiren uçlar.
+	idempotent := idem.Middleware(pool)
 	protected := func(pattern string, fn http.HandlerFunc) {
-		mux.Handle(pattern, authHandler.RequireAuth(fn))
+		mux.Handle(pattern, authHandler.RequireAuth(idempotent(fn)))
 	}
 	protected("GET /me", authHandler.Me)
 	protected("POST /me/tours", authHandler.MarkTours)
+	protected("POST /me/password", authHandler.ChangePassword)
+	protected("DELETE /me", authHandler.DeleteAccount)
+
+	protected("GET /notifications", notifier.List)
+	protected("POST /notifications/read", notifier.MarkRead)
+	protected("GET /push/key", notifier.Key)
+	protected("POST /push/subscribe", notifier.Subscribe)
+	protected("POST /push/unsubscribe", notifier.Unsubscribe)
+	protected("POST /push/test", notifier.Test)
+
+	protected("POST /transfers", txHandler.CreateTransfer)
+	protected("GET /export/transactions.csv", txHandler.ExportCSV)
+
+	protected("GET /budgets", budgetHandler.List)
+	protected("POST /budgets", budgetHandler.Create)
+	protected("PATCH /budgets/{id}", budgetHandler.Update)
+	protected("DELETE /budgets/{id}", budgetHandler.Delete)
 	protected("POST /me/inbox-token", authHandler.RotateInboxToken)
 	protected("DELETE /me/inbox-token", authHandler.RevokeInboxToken)
 
@@ -119,7 +176,12 @@ func main() {
 	protected("POST /groups", groupHandler.Create)
 	protected("GET /groups/{id}", groupHandler.Get)
 	protected("PATCH /groups/{id}", groupHandler.Rename)
-	protected("POST /groups/{id}/members", groupHandler.AddMember)
+	protected("POST /groups/{id}/invites", groupHandler.CreateInvite)
+	protected("POST /groups/{id}/members", groupHandler.CreateInvite) // eski istemciler: artık davet gönderir
+	protected("DELETE /groups/{id}/invites/{iid}", groupHandler.CancelInvite)
+	protected("GET /invites", groupHandler.MyInvites)
+	protected("POST /invites/{id}/accept", groupHandler.AcceptInvite)
+	protected("POST /invites/{id}/decline", groupHandler.DeclineInvite)
 	protected("POST /groups/{id}/leave", groupHandler.Leave)
 	protected("GET /groups/{id}/transactions", txHandler.ListByGroup)
 	protected("GET /groups/{id}/balances", groupHandler.Balances)
@@ -158,6 +220,7 @@ func main() {
 	runCtx, stopRunner := context.WithCancel(context.Background())
 	defer stopRunner()
 	runner.Start(runCtx, 15*time.Minute)
+	go idem.Cleanup(runCtx, pool)
 
 	go func() {
 		log.Printf("sunucu %s'de basladi", addr)
@@ -194,4 +257,49 @@ func logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
 	})
+}
+
+// migrate gömülü migration'ları uygular (goose).
+func migrate(dbURL string) error {
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return err
+	}
+	return goose.Up(db, ".")
+}
+
+// notifyRecurring düzenli ödeme işlendiğinde sahibine haber verir; grup
+// gideriyse diğer üyelere ve bütçe kontrolüne de gider.
+func notifyRecurring(ctx context.Context, pool *pgxpool.Pool, n *notify.Notifier, loc *time.Location, txID, owner int) {
+	var desc, category *string
+	var amount int64
+	var currency, typ string
+	err := pool.QueryRow(ctx, `
+SELECT t.description, t.category, t.amount, a.currency, t.type::text
+FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE t.id = $1`, txID).Scan(&desc, &category, &amount, &currency, &typ)
+	if err != nil {
+		return
+	}
+	what := "Düzenli ödeme"
+	if desc != nil && *desc != "" {
+		what = *desc
+	} else if category != nil {
+		what = budgets.CategoryLabel(*category)
+	}
+	sym := map[string]string{"TRY": "₺", "USD": "$", "EUR": "€", "GBP": "£"}[currency]
+	verb := "işlendi"
+	if typ == "income" {
+		verb = "hesabına eklendi"
+	}
+	n.Send(ctx, notify.Notice{
+		UserID: owner, Kind: "recurring", RefID: &txID, URL: "/recurring",
+		Title: what + " " + verb, Body: ledger.FormatMoney(amount) + " " + sym,
+	})
+	budgets.Check(ctx, pool, n, loc, txID)
+	transactions.NotifyGroupExpense(ctx, pool, n, txID)
 }

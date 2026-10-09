@@ -9,22 +9,25 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wallet-api/internal/auth"
 	"wallet-api/internal/httpx"
+	"wallet-api/internal/notify"
 )
 
 type Handler struct {
-	DB  *pgxpool.Pool
-	Loc *time.Location
+	DB     *pgxpool.Pool
+	Loc    *time.Location
+	Notify *notify.Notifier
 }
 
 type Member struct {
 	UserID   int       `json:"user_id"`
 	Username string    `json:"username"`
 	JoinedAt time.Time `json:"joined_at"`
+	// Deleted: kullanıcı hesabını kapatmış; geçmişi grupta kalır.
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 type Group struct {
@@ -33,6 +36,8 @@ type Group struct {
 	CreatedBy int       `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 	Members   []Member  `json:"members,omitempty"`
+	// Invites kabul bekleyen davetler (sadece grup detayında).
+	Invites []Invite `json:"invites,omitempty"`
 }
 
 func validName(name string) (string, bool) {
@@ -154,7 +159,7 @@ func (h *Handler) writeGroup(w http.ResponseWriter, r *http.Request, id, status 
 		return
 	}
 	rows, err := h.DB.Query(ctx, `
-SELECT u.id, u.username, gm.joined_at
+SELECT u.id, u.username, gm.joined_at, u.deleted_at IS NOT NULL
 FROM group_members gm
 JOIN users u ON u.id = gm.user_id
 WHERE gm.group_id = $1
@@ -165,11 +170,15 @@ ORDER BY gm.joined_at, u.id`, id)
 	}
 	g.Members, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (Member, error) {
 		var m Member
-		err := row.Scan(&m.UserID, &m.Username, &m.JoinedAt)
+		err := row.Scan(&m.UserID, &m.Username, &m.JoinedAt, &m.Deleted)
 		return m, err
 	})
 	if err != nil {
 		httpx.ServerError(w, "group members scan", err)
+		return
+	}
+	if g.Invites, err = h.pendingInvites(ctx, "i.group_id = $1", id); err != nil {
+		httpx.ServerError(w, "group invites", err)
 		return
 	}
 	httpx.WriteJSON(w, status, g)
@@ -200,62 +209,6 @@ WHERE id = $2 AND EXISTS (SELECT 1 FROM group_members WHERE group_id = $2 AND us
 	}
 	if tag.RowsAffected() == 0 {
 		httpx.WriteError(w, http.StatusNotFound, "grup bulunamadi")
-		return
-	}
-	h.writeGroup(w, r, id, http.StatusOK)
-}
-
-type addMemberRequest struct {
-	Username string `json:"username"`
-}
-
-// AddMember: grubun herhangi bir üyesi, kullanıcı adıyla yeni üye ekleyebilir.
-func (h *Handler) AddMember(w http.ResponseWriter, r *http.Request) {
-	id, ok := httpx.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-	var req addMemberRequest
-	if !httpx.DecodeJSON(w, r, &req) {
-		return
-	}
-	ctx := r.Context()
-
-	member, err := h.isMember(ctx, id, auth.UserID(ctx))
-	if err != nil {
-		httpx.ServerError(w, "add member check", err)
-		return
-	}
-	if !member {
-		httpx.WriteError(w, http.StatusNotFound, "grup bulunamadi")
-		return
-	}
-
-	var newUserID int
-	err = h.DB.QueryRow(ctx,
-		"SELECT id FROM users WHERE username = $1",
-		strings.ToLower(strings.TrimSpace(req.Username)),
-	).Scan(&newUserID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "kullanici bulunamadi")
-		return
-	}
-	if err != nil {
-		httpx.ServerError(w, "add member user", err)
-		return
-	}
-
-	_, err = h.DB.Exec(ctx,
-		"INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)",
-		id, newUserID,
-	)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		httpx.WriteError(w, http.StatusConflict, "kullanici zaten grupta")
-		return
-	}
-	if err != nil {
-		httpx.ServerError(w, "add member insert", err)
 		return
 	}
 	h.writeGroup(w, r, id, http.StatusOK)

@@ -94,24 +94,40 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Username = normalizeUsername(req.Username)
 
+	ctx := r.Context()
+	if wait, err := h.lockedFor(ctx, req.Username); err != nil {
+		httpx.ServerError(w, "login lock check", err)
+		return
+	} else if wait > 0 {
+		writeLocked(w, wait)
+		return
+	}
+
 	var u User
 	var hash *string
-	err := h.DB.QueryRow(r.Context(),
-		"SELECT id, username, created_at, password_hash FROM users WHERE username = $1",
+	var deleted bool
+	err := h.DB.QueryRow(ctx,
+		"SELECT id, username, created_at, password_hash, deleted_at IS NOT NULL FROM users WHERE username = $1",
 		req.Username,
-	).Scan(&u.ID, &u.Username, &u.CreatedAt, &hash)
+	).Scan(&u.ID, &u.Username, &u.CreatedAt, &hash, &deleted)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		httpx.ServerError(w, "login select", err)
 		return
 	}
 
+	ok := false
 	if err != nil || hash == nil {
 		CheckPassword(string(dummyHash), req.Password)
-		httpx.WriteError(w, http.StatusUnauthorized, "kullanici adi veya sifre hatali")
+	} else {
+		ok = CheckPassword(*hash, req.Password)
+	}
+	if !ok {
+		h.failLogin(w, r, req.Username)
 		return
 	}
-	if !CheckPassword(*hash, req.Password) {
-		httpx.WriteError(w, http.StatusUnauthorized, "kullanici adi veya sifre hatali")
+	h.clearFailures(ctx, req.Username)
+	if deleted {
+		httpx.WriteError(w, http.StatusForbidden, "bu hesap silinmis")
 		return
 	}
 

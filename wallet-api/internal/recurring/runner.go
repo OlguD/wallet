@@ -17,6 +17,8 @@ import (
 type Runner struct {
 	DB  *pgxpool.Pool
 	Loc *time.Location
+	// Created işlem üretildikten (commit sonrası) çağrılır; bildirimler için.
+	Created func(ctx context.Context, ruleID, txID, owner int)
 }
 
 // Start başlangıçta ve sonra her interval'da RunDue çalıştırır.
@@ -93,6 +95,7 @@ FOR UPDATE OF rt SKIP LOCKED`, today,
 		return false, err
 	}
 
+	var created []int
 	for !k.next.After(today) && (k.endOn == nil || !k.next.After(*k.endOn)) {
 		in := ledger.Input{
 			AccountID:   k.accountID,
@@ -105,13 +108,13 @@ FOR UPDATE OF rt SKIP LOCKED`, today,
 			Split:       k.split,
 			RecurringID: &k.id,
 		}
-		_, err := ledger.Create(ctx, tx, k.owner, in)
+		txID, err := ledger.Create(ctx, tx, k.owner, in)
 		var appErr *httpx.Error
 		if errors.As(err, &appErr) && in.Split != nil {
 			// Paylaşımdaki biri gruptan ayrılmış olabilir: güncel üyelere eşit böl.
 			log.Printf("recurring %d: paylasim gecersiz (%s), esit bolunuyor", k.id, appErr.Msg)
 			in.Split = nil
-			_, err = ledger.Create(ctx, tx, k.owner, in)
+			txID, err = ledger.Create(ctx, tx, k.owner, in)
 		}
 		if errors.As(err, &appErr) {
 			// Kural artık uygulanamıyor (örn. sahibi gruptan ayrıldı): durdur.
@@ -124,6 +127,7 @@ FOR UPDATE OF rt SKIP LOCKED`, today,
 		if err != nil {
 			return false, err
 		}
+		created = append(created, txID)
 		k.next = Next(k.next, k.frequency, k.interval, k.anchorDay)
 	}
 
@@ -135,5 +139,13 @@ FOR UPDATE OF rt SKIP LOCKED`, today,
 	if err != nil {
 		return false, err
 	}
-	return false, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	if r.Created != nil {
+		for _, id := range created {
+			r.Created(ctx, k.id, id, k.owner)
+		}
+	}
+	return false, nil
 }

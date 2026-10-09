@@ -56,7 +56,8 @@ func lookupSession(ctx context.Context, db *pgxpool.Pool, token string) (int, er
 	var userID int
 	var expires time.Time
 	err := db.QueryRow(ctx,
-		"SELECT user_id, expires_at FROM sessions WHERE token_hash = $1 AND expires_at > now()",
+		`SELECT s.user_id, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
+		 WHERE s.token_hash = $1 AND s.expires_at > now() AND u.deleted_at IS NULL`,
 		hash,
 	).Scan(&userID, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {

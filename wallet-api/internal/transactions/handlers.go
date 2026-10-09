@@ -2,6 +2,7 @@ package transactions
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,12 +13,14 @@ import (
 	"wallet-api/internal/auth"
 	"wallet-api/internal/httpx"
 	"wallet-api/internal/ledger"
+	"wallet-api/internal/notify"
 	"wallet-api/internal/receipts"
 )
 
 type Handler struct {
-	DB  *pgxpool.Pool
-	Loc *time.Location
+	DB     *pgxpool.Pool
+	Loc    *time.Location
+	Notify *notify.Notifier
 }
 
 type SplitView struct {
@@ -49,6 +52,10 @@ type Transaction struct {
 	CounterpartyIBAN *string `json:"counterparty_iban"`
 	CounterpartyBank *string `json:"counterparty_bank"`
 	ReceiptID        *int    `json:"receipt_id"`
+	// Transfer: diğer bacağın işlem kimliği ve hesabı (sadece sahibine).
+	TransferPeerID      *int    `json:"transfer_peer_id"`
+	TransferAccountID   *int    `json:"transfer_account_id"`
+	TransferAccountName *string `json:"transfer_account_name"`
 }
 
 // $1 her zaman görüntüleyen kullanıcıdır; başkasının hesabındaki
@@ -58,12 +65,15 @@ SELECT t.id, t.account_id, t.group_id, t.type, t.amount, a.currency, t.category,
        CASE WHEN a.user_id = $1 THEN a.name ELSE '' END, t.description,
        t.occurred_at, t.created_at, t.updated_at, t.recurring_id,
        CASE WHEN a.user_id = $1 THEN b.amount END, a.user_id, u.username,
-       t.counterparty_name, t.counterparty_iban, t.counterparty_bank, rc.id
+       t.counterparty_name, t.counterparty_iban, t.counterparty_bank, rc.id,
+       t.transfer_peer_id, pa.id, pa.name
 FROM transactions t
 JOIN accounts a ON a.id = t.account_id
 JOIN users u ON u.id = a.user_id
 LEFT JOIN balances b ON b.transaction_id = t.id
 LEFT JOIN receipts rc ON rc.transaction_id = t.id
+LEFT JOIN transactions pt ON pt.id = t.transfer_peer_id
+LEFT JOIN accounts pa ON pa.id = pt.account_id
 `
 
 func scanTx(row pgx.CollectableRow) (Transaction, error) {
@@ -72,7 +82,8 @@ func scanTx(row pgx.CollectableRow) (Transaction, error) {
 		&t.AccountName, &t.Description,
 		&t.OccurredAt, &t.CreatedAt, &t.UpdatedAt, &t.RecurringID,
 		&t.BalanceAfter, &t.UserID, &t.Username,
-		&t.CounterpartyName, &t.CounterpartyIBAN, &t.CounterpartyBank, &t.ReceiptID)
+		&t.CounterpartyName, &t.CounterpartyIBAN, &t.CounterpartyBank, &t.ReceiptID,
+		&t.TransferPeerID, &t.TransferAccountID, &t.TransferAccountName)
 	return t, err
 }
 
@@ -205,6 +216,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.ServerError(w, "transaction commit", err)
 		return
 	}
+	h.afterCreate(ctx, id)
 	h.writeOne(w, r, id, http.StatusCreated)
 }
 
@@ -248,6 +260,23 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+
+	var peer *int
+	if err := tx.QueryRow(ctx, "SELECT transfer_peer_id FROM transactions WHERE id = $1", id).Scan(&peer); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		httpx.ServerError(w, "transaction update peer", err)
+		return
+	}
+	if peer != nil {
+		if req.Type != nil || req.Amount != nil || req.Category.Set || req.GroupID.Set || req.Split != nil {
+			httpx.WriteError(w, http.StatusConflict, "transferin tutari degistirilemez; silip yeniden olusturun")
+			return
+		}
+		// Tarih ve açıklama iki bacakta aynı kalır.
+		if err := ledger.Update(ctx, tx, auth.UserID(ctx), *peer, ledger.Patch{Description: req.Description, OccurredAt: req.OccurredAt}); err != nil {
+			httpx.Fail(w, "transfer peer update", err)
+			return
+		}
+	}
 
 	err = ledger.Update(ctx, tx, auth.UserID(ctx), id, ledger.Patch{
 		Type:        req.Type,
@@ -299,9 +328,21 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.ServerError(w, "transaction delete receipt", err)
 		return
 	}
+	var peer *int
+	if err := tx.QueryRow(ctx, "SELECT transfer_peer_id FROM transactions WHERE id = $1", id).Scan(&peer); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		httpx.ServerError(w, "transaction delete peer", err)
+		return
+	}
 	if err := ledger.Delete(ctx, tx, auth.UserID(ctx), id); err != nil {
 		httpx.Fail(w, "transaction delete", err)
 		return
+	}
+	// Transferin diğer bacağı da silinir.
+	if peer != nil {
+		if err := ledger.Delete(ctx, tx, auth.UserID(ctx), *peer); err != nil {
+			httpx.Fail(w, "transfer peer delete", err)
+			return
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		httpx.ServerError(w, "transaction delete commit", err)
@@ -346,7 +387,7 @@ LIMIT $3 OFFSET $4`, accountID, limit, offset)
 }
 
 // List kullanıcının tüm hesaplarındaki işlemleri listeler.
-// Filtreler: ?from=&to= (YYYY-AA-GG, to hariç), ?account_id=, ?category=, ?group_id=, ?counterparty=.
+// Filtreler: ?from=&to= (YYYY-AA-GG, to hariç), ?account_id=, ?category=, ?group_id=, ?counterparty=, ?q= (arama).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -387,6 +428,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("counterparty"); v != "" {
 		counterparty = &v
 	}
+	// q: açıklama / karşı taraf / hesap adında arama; sayıysa tutar da eşleşir.
+	search, amount := searchTerms(q.Get("q"))
 
 	limit, offset := httpx.Pagination(r)
 	list, err := h.query(ctx, auth.UserID(ctx), `
@@ -397,8 +440,12 @@ WHERE a.user_id = $1
   AND ($5::int IS NULL OR t.group_id = $5)
   AND ($6::text IS NULL OR t.category = $6)
   AND ($9::text IS NULL OR COALESCE(t.counterparty_iban, 'name:' || lower(t.counterparty_name)) = $9)
+  AND ($10::text IS NULL
+       OR lower(coalesce(t.description, '') || ' ' || coalesce(t.counterparty_name, '')) LIKE $10
+       OR lower(a.name) LIKE $10
+       OR t.amount = $11)
 ORDER BY t.occurred_at DESC, t.id DESC
-LIMIT $7 OFFSET $8`, from, to, accountID, groupID, category, limit, offset, counterparty)
+LIMIT $7 OFFSET $8`, from, to, accountID, groupID, category, limit, offset, counterparty, search, amount)
 	if err != nil {
 		httpx.ServerError(w, "transactions list all", err)
 		return
@@ -474,7 +521,7 @@ SELECT a.currency,
        COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0)::bigint
 FROM transactions t
 JOIN accounts a ON a.id = t.account_id
-WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3
+WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3 AND t.transfer_peer_id IS NULL
 GROUP BY a.currency
 ORDER BY a.currency`,
 		auth.UserID(r.Context()), from, to,
@@ -518,7 +565,7 @@ ORDER BY a.id`,
 SELECT a.currency, t.type::text, COALESCE(t.category, 'other'), SUM(t.amount)::bigint
 FROM transactions t
 JOIN accounts a ON a.id = t.account_id
-WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3
+WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3 AND t.transfer_peer_id IS NULL
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 4 DESC`,
 		auth.UserID(r.Context()), from, to,
