@@ -4,3 +4,4 @@ wallet-api/.gitignore
 wallet-api/.env
 wallet-api/data/
 .DS_Store
+.env.prod

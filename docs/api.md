@@ -193,3 +193,67 @@ Gelen kutusu anahtarı sadece `POST /inbox` için geçerlidir (oturum yerine ge�
 
 `GET /me` → `seen_tours: [..]`, `has_inbox_token`. `POST /me/tours {ids: [..]}` görülenleri ekler.
 Turlar `wallet-web/src/lib/tours.js` içinde; her yeni özellik yeni bir tur kimliğiyle eklenir.
+
+## Güvenlik ve hesap
+
+- **Giriş kilidi:** aynı kullanıcı adıyla art arda 5 hatalı şifrede 5 dakika kilit (`429`, `Retry-After`, `{error, retry_after}`).
+  Hatalı denemede `401 {error, attempts_left}`. Var olmayan kullanıcı adları da aynı şekilde sayılır. Şifre doğrulayan
+  diğer uçlar (`/me/password`, `DELETE /me`) da aynı kurala tabidir.
+- `POST /me/password` `{current_password, new_password}` → 204; bu cihaz dışındaki oturumlar kapanır.
+- `DELETE /me` `{password}` → 204. Hesap kapatılır (`users.deleted_at`); **veriler silinmez** (işlemler, hesaplar,
+  grup geçmişi, borçlar kalır). Oturumlar, gelen kutusu anahtarı ve bildirim abonelikleri kaldırılır, bekleyen davetler
+  iptal edilir, düzenli ödemeler durdurulur. Kapalı hesapla giriş `403 "bu hesap silinmis"`; kullanıcı adı tekrar alınamaz.
+
+## Tekrar koruması (Idempotency-Key)
+
+Oturumlu tüm değişiklik isteklerine `Idempotency-Key: <8-64 karakter [A-Za-z0-9_-]>` eklenebilir. Aynı anahtarla gelen
+tekrar istek işlenmez; ilk yanıt `Idempotent-Replay: true` ile döner (5xx yanıtlar saklanmaz). Anahtar başka bir
+yöntem/yol için kullanılırsa `422`; ilk istek hâlâ işleniyorsa `409`. Anahtarlar 7 gün tutulur. Arayüzün çevrimdışı
+kuyruğu her isteğe anahtar ekler.
+
+## Grup davetleri
+
+Gruba üye doğrudan eklenmez; davet edilen kabul edince üye olur.
+
+| Yöntem | Yol | Gövde | Yanıt |
+|---|---|---|---|
+| POST | `/groups/{id}/invites` | `{username}` | 201 `Group` (`invites` dahil); eski `POST /groups/{id}/members` da davet gönderir |
+| DELETE | `/groups/{id}/invites/{iid}` | – | `Group` (grubun herhangi bir üyesi geri çekebilir) |
+| GET | `/invites` | – | `[Invite]` (bana gelen bekleyenler) |
+| POST | `/invites/{id}/accept` | – | `Group` |
+| POST | `/invites/{id}/decline` | – | 204 |
+
+`Invite`: `{id, group_id, group_name, inviter_id, inviter_name, invitee_id, invitee_name, created_at}`.
+`Group.members[].deleted`: hesabı kapalı üye.
+
+## Transfer, bütçe, arama, dışa aktarma
+
+| Yöntem | Yol | Gövde | Yanıt |
+|---|---|---|---|
+| POST | `/transfers` | `{from_account_id, to_account_id, amount, to_amount?, description?, occurred_at?}` | 201 kaynak bacak `Transaction` |
+| GET | `/budgets?month=YYYY-MM` | – | `[{id, category, currency, amount, spent, remaining, pct}]` |
+| POST | `/budgets` | `{category, amount, currency?}` | 201 |
+| PATCH | `/budgets/{id}` | `{amount}` | `Budget` |
+| DELETE | `/budgets/{id}` | – | 204 |
+| GET | `/transactions?q=` | – | açıklama, karşı taraf, hesap adında arar; sayıysa tutar da eşleşir |
+| GET | `/export/transactions.csv?from=&to=` | – | CSV (UTF-8 BOM, `;`, `,` ondalık — Excel TR) |
+
+Transfer iki bağlı işlem oluşturur (gider + gelir; `transfer_peer_id`, `transfer_account_id`, `transfer_account_name`).
+Farklı para birimlerinde `to_amount` zorunludur. Transferler `summary` toplamlarına ve bütçelere sayılmaz; tutarı
+değiştirilemez (`409`), açıklama/tarih iki bacakta birlikte değişir, silinince iki bacak birden silinir.
+Bütçe harcaması: o ay, o para biriminde, o kategorideki (transfer olmayan) giderler. %80 ve %100'de bildirim (ayda bir kez).
+
+## Bildirimler
+
+| Yöntem | Yol | Gövde | Yanıt |
+|---|---|---|---|
+| GET | `/notifications` | – | `{items: [{id, kind, title, body, url, read_at, created_at}], unread}` (son 50) |
+| POST | `/notifications/read` | `{ids: []}` (boş: hepsi) | 204 |
+| GET | `/push/key` | – | `{enabled, public_key}` |
+| POST | `/push/subscribe` | tarayıcının `PushSubscription.toJSON()` çıktısı | 204 |
+| POST | `/push/unsubscribe` | `{endpoint}` | 204 |
+| POST | `/push/test` | – | 204 |
+
+Bildirim türleri: `invite`, `invite_accepted`, `group_expense` (diğer üyelere, kendi paylarıyla), `recurring` (işlenen
+düzenli ödeme), `budget80:YYYY-MM`, `budget:YYYY-MM`. Web Push için `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT` gerekir (`wallet-api gen-vapid` üretir); yoksa sadece uygulama içi bildirim yazılır.
