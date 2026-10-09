@@ -3,10 +3,12 @@
   import ThemePicker from '../components/ThemePicker.svelte'
   import { I } from '../lib/icons.js'
   import { api } from '../lib/api.js'
-  import { t, errorText } from '../lib/i18n.js'
+  import { t, errorText, monthLabel } from '../lib/i18n.js'
   import { prefs, setLang } from '../lib/prefs.svelte.js'
   import { back, navigate } from '../lib/router.svelte.js'
-  import { app, signedOut, toast } from '../lib/store.svelte.js'
+  import { app, signedOut, toast, monthRange } from '../lib/store.svelte.js'
+  import { net, clearOffline } from '../lib/offline.svelte.js'
+  import { pushState, enablePush, disablePush, needsInstall } from '../lib/push.js'
 
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true
 
@@ -39,15 +41,71 @@
     }
   }
 
+  // Şifre değiştirme
+  let pw = $state({ current: '', next: '', again: '' })
+  let pwBusy = $state(false)
+  async function changePassword(e) {
+    e.preventDefault()
+    if (pw.next !== pw.again) return toast(t('pw.mismatch'), 'err')
+    pwBusy = true
+    try {
+      await api.post('/me/password', { current_password: pw.current, new_password: pw.next })
+      pw = { current: '', next: '', again: '' }
+      toast(t('pw.done'))
+    } catch (err) {
+      toast(errorText(err), 'err')
+    } finally {
+      pwBusy = false
+    }
+  }
+
+  // Bildirimler
+  let push = $state('off')
+  let pushBusy = $state(false)
+  pushState().then((s) => (push = s)).catch(() => {})
+  async function togglePush() {
+    pushBusy = true
+    try {
+      push = push === 'on' ? await disablePush() : await enablePush()
+      if (push === 'denied') toast(t('push.denied'), 'err')
+    } catch (err) {
+      toast(errorText(err), 'err')
+    } finally {
+      pushBusy = false
+    }
+  }
+
+  // Hesap silme (veriler kalır)
+  let delOpen = $state(false)
+  let delPw = $state('')
+  async function deleteAccount(e) {
+    e.preventDefault()
+    if (!confirm(t('del.sure'))) return
+    try {
+      await api.del('/me', { password: delPw })
+      clearOffline()
+      signedOut()
+    } catch (err) {
+      toast(errorText(err), 'err')
+    }
+  }
+
+  const exportUrl = $derived(`/api/export/transactions.csv?from=${monthRange().from}&to=${monthRange().to}`)
+
   function replayTour() {
     navigate('/')
     setTimeout(() => (app.tour = 'welcome'), 400)
   }
 
   async function logout() {
+    // Gönderilmemiş değişiklikler çıkışta silinir; önce uyar.
+    if (net.pending && !confirm(t('off.logout_warn', { n: net.pending }))) return
     try {
       await api.post('/auth/logout')
+    } catch {
+      /* çevrimdışı: yine de cihazdan çık */
     } finally {
+      clearOffline()
       signedOut()
     }
   }
@@ -89,6 +147,43 @@
     </div>
   </section>
 
+  <section class="section" data-tour="push">
+    <h2 class="h-section">{t('push.title')}</h2>
+    <div class="card sc">
+      <p>{t('push.what')}</p>
+      {#if push === 'unsupported'}
+        <p class="muted">{needsInstall() ? t('push.ios_hint') : t('push.unsupported')}</p>
+      {:else if push === 'denied'}
+        <p class="warn">{t('push.denied')}</p>
+      {:else}
+        {#if push === 'on'}<p class="muted"><Icon d={I.check} size={14} /> {t('push.enabled')}</p>{/if}
+        <div class="row-btns">
+          <button type="button" class="btn small" class:ghost={push === 'on'} disabled={pushBusy} onclick={togglePush}>
+            <Icon d={I.bell} size={16} />{push === 'on' ? t('push.off') : t('push.on')}
+          </button>
+          {#if push === 'on'}<button type="button" class="btn small ghost" onclick={() => api.post('/push/test')}>{t('push.test')}</button>{/if}
+        </div>
+      {/if}
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="h-section">{t('set.data')}</h2>
+    <a class="btn ghost" href={exportUrl} download><Icon d={I.download} size={18} />{t('tx.export')} · {monthLabel(app.month)}</a>
+  </section>
+
+  <section class="section" data-tour="password">
+    <h2 class="h-section">{t('set.security')}</h2>
+    <form class="card sc" onsubmit={changePassword}>
+      <strong>{t('pw.title')}</strong>
+      <input class="input" type="password" autocomplete="current-password" placeholder={t('pw.current')} bind:value={pw.current} required />
+      <input class="input" type="password" autocomplete="new-password" placeholder={t('pw.new')} bind:value={pw.next} minlength="8" maxlength="72" required />
+      <input class="input" type="password" autocomplete="new-password" placeholder={t('pw.new2')} bind:value={pw.again} minlength="8" maxlength="72" required />
+      <small class="muted">{t('pw.hint')}</small>
+      <button class="btn small" disabled={pwBusy || pw.next.length < 8}><Icon d={I.lock} size={16} />{t('pw.title')}</button>
+    </form>
+  </section>
+
   <section class="section" id="shortcut">
     <h2 class="h-section">{t('sc.title')}</h2>
     <div class="card sc">
@@ -122,6 +217,22 @@
 
   <button type="button" class="btn ghost" onclick={replayTour}><Icon d={I.play} size={16} />{t('tour.replay')}</button>
   <button type="button" class="btn danger" onclick={logout}><Icon d={I.logout} size={18} />{t('auth.logout')}</button>
+
+  <section class="section">
+    {#if !delOpen}
+      <button type="button" class="link-btn danger-text" onclick={() => (delOpen = true)}>{t('del.title')}</button>
+    {:else}
+      <form class="card sc" onsubmit={deleteAccount}>
+        <strong>{t('del.title')}</strong>
+        <p class="muted">{t('del.body')}</p>
+        <input class="input" type="password" autocomplete="current-password" placeholder={t('del.confirm')} bind:value={delPw} required />
+        <div class="row-btns">
+          <button type="button" class="btn small ghost" onclick={() => (delOpen = false)}>{t('common.cancel')}</button>
+          <button class="btn small danger" disabled={!delPw}>{t('del.button')}</button>
+        </div>
+      </form>
+    {/if}
+  </section>
   <p class="hint" style="text-align: center">{t('set.version', { v: '1.0.0' })}</p>
 </div>
 
@@ -182,6 +293,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .danger-text {
+    color: var(--danger);
+    align-self: center;
   }
   .warn {
     color: var(--danger);

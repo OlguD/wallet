@@ -36,7 +36,13 @@
     if (!amount || busy) return
     busy = true
     try {
-      const g = await api.post(`/goals/${goal.id}/contributions`, { amount: mode === 'in' ? amount : -amount, note: note.trim() || null })
+      const signed = mode === 'in' ? amount : -amount
+      let g = await api.post(`/goals/${goal.id}/contributions`, { amount: signed, note: note.trim() || null })
+      if (g?.queued) {
+        // Çevrimdışı: kuyruğa alındı; ilerlemeyi yerelde güncelle.
+        const current = goal.current + signed
+        g = { ...goal, current, remaining: Math.max(0, goal.target_amount - current), progress_pct: Math.min(100, Math.floor((Math.max(0, current) * 100) / goal.target_amount)) }
+      }
       toast(t(mode === 'in' ? 'goal.added' : 'goal.taken', { v: fmtc(amount, goal.currency) }))
       if (mode === 'in' && g.remaining === 0 && goal.remaining > 0) navigator.vibrate?.([20, 60, 20, 60, 40])
       amountText = ''

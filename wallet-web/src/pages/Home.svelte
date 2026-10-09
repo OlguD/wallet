@@ -8,7 +8,6 @@
   import AccountSheet from '../components/AccountSheet.svelte'
   import GoalCard from '../components/GoalCard.svelte'
   import GoalView from '../components/GoalView.svelte'
-  import InboxSheet from '../components/InboxSheet.svelte'
   import { I } from '../lib/icons.js'
   import { api } from '../lib/api.js'
   import { t, tv, monthLabel, monthName, dayLabel } from '../lib/i18n.js'
@@ -17,7 +16,7 @@
   import { fmtRate } from '../lib/fx.js'
   import { prefs } from '../lib/prefs.svelte.js'
   import { navigate } from '../lib/router.svelte.js'
-  import { app, totals, monthTotals, accountMonth } from '../lib/store.svelte.js'
+  import { app, totals, monthTotals, accountMonth, inboxCount } from '../lib/store.svelte.js'
 
   let recent = $state([])
   let monthOpen = $state(false)
@@ -26,13 +25,14 @@
   let goals = $state([])
   let rules = $state([])
   let viewing = $state(null)
-  let inboxOpen = $state(false)
+  let budgetList = $state([])
 
   const loadGoals = () => api.get('/goals').then((g) => (goals = g)).catch(() => {})
   $effect(() => {
     app.version
     api.get('/transactions', { limit: prefs.theme === 'c' ? 4 : 5 }).then((r) => (recent = r)).catch(() => {})
     loadGoals()
+    api.get('/budgets').then((b) => (budgetList = b.sort((x, y) => y.pct - x.pct))).catch(() => {})
     api.get('/recurring').then((r) => (rules = r.filter((x) => x.active && x.user_id === app.user?.id))).catch(() => {})
   })
   const nextRule = $derived(rules[0])
@@ -89,6 +89,10 @@
     {/if}
     <div class="row-left">
       {#if prefs.theme === 'b'}<button type="button" class="month-b" onclick={() => (monthOpen = true)}>{monthLabel(app.month)}</button>{/if}
+      <button type="button" class="bell" data-tour="inbox" aria-label={t('inbox.title')} onclick={() => navigate('/inbox')}>
+        <Icon d={I.bell} size={20} />
+        {#if inboxCount()}<span class="bdg num">{inboxCount()}</span>{/if}
+      </button>
       <button type="button" class="avatar" data-tour="settings" aria-label={t('nav.profile')} onclick={() => navigate('/settings')}>{initial}</button>
     </div>
   </header>
@@ -99,7 +103,7 @@
   {@render header()}
 
   {#if app.inbox.length}
-    <button type="button" class="card inbox rise" data-tour="inbox" onclick={() => (inboxOpen = true)}>
+    <button type="button" class="card inbox rise" onclick={() => navigate('/inbox')}>
       <span class="ico"><Icon d={I.inbox} size={18} /></span>
       <span class="grow">
         <span class="title">{t('rc.inbox')}</span>
@@ -233,6 +237,25 @@
         </button>
       {/if}
     </section>
+    <section class="section" data-tour="budgets">
+      <div class="section-head">
+        <h2 class="h-section">{t('bud.home')}</h2>
+        <a href="/budgets" onclick={(e) => { e.preventDefault(); navigate('/budgets') }}>{budgetList.length ? t('common.all') : t('bud.new')}</a>
+      </div>
+      {#each budgetList.slice(0, 3) as b (b.id)}
+        <button type="button" class="card budget-mini" class:over={b.pct > 100} class:warn={b.pct >= 80 && b.pct <= 100} onclick={() => navigate('/budgets')}>
+          <span class="bm-top"><span>{t('cat.' + b.category)}</span><span class="num">{fmtc(b.spent, b.currency)} / {fmtc(b.amount, b.currency)}</span></span>
+          <span class="bar"><span style="width: {Math.min(100, b.pct)}%"></span></span>
+        </button>
+      {/each}
+      {#if !budgetList.length}
+        <button type="button" class="card shortcut" onclick={() => navigate('/budgets')}>
+          <span class="ico"><Icon d={I.pie} size={18} /></span>
+          <span class="grow"><span class="sub">{t('bud.empty')}</span></span>
+          <Icon d={I.right} size={16} stroke={2} />
+        </button>
+      {/if}
+    </section>
     <section class="section">
       <button type="button" class="card shortcut" data-tour="payees" onclick={() => navigate('/payees')}>
         <span class="ico"><Icon d={I.person} size={18} /></span>
@@ -289,10 +312,61 @@
 
 {#if monthOpen}<MonthPicker onclose={() => (monthOpen = false)} />{/if}
 {#if newAccount}<AccountSheet onclose={() => (newAccount = false)} />{/if}
-{#if inboxOpen}<InboxSheet onclose={() => (inboxOpen = false)} />{/if}
 {#if viewing}<GoalView goal={viewing} onclose={() => (viewing = null)} onchange={loadGoals} />{/if}
 
 <style>
+  .bell {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    border: none;
+    background: var(--surface2);
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bdg {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .budget-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    color: var(--fg);
+  }
+  .bm-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .bm-top .num {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .budget-mini.warn .bar > span {
+    background: #e8a33d;
+  }
+  .budget-mini.over .bar > span {
+    background: var(--danger);
+  }
   .inbox {
     display: flex;
     align-items: center;

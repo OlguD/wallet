@@ -5,6 +5,11 @@
   import Toast from './components/Toast.svelte'
   import AddSheet from './components/AddSheet.svelte'
   import Tour from './components/Tour.svelte'
+  import OfflineBar from './components/OfflineBar.svelte'
+  import { net, flush } from './lib/offline.svelte.js'
+  import TransferSheet from './components/TransferSheet.svelte'
+  import Inbox from './pages/Inbox.svelte'
+  import Budgets from './pages/Budgets.svelte'
   import { pendingTour } from './lib/tours.js'
   import Login from './pages/Login.svelte'
   import Home from './pages/Home.svelte'
@@ -31,8 +36,12 @@
     const minSplash = new Promise((r) => setTimeout(r, 1500))
     Promise.all([loadSession(), minSplash]).then(() => (splash = false))
 
-    // Uygulamaya geri dönülünce (ana ekrandan) verileri tazele.
-    const onVisible = () => document.visibilityState === 'visible' && refresh().catch(() => {})
+    // Uygulamaya geri dönülünce (ana ekrandan) kuyruğu gönder ve verileri tazele.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      flush()
+      refresh().catch(() => {})
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   })
@@ -51,7 +60,25 @@
   }
 
   $effect(() => {
-    if (app.user && !splash) handleShared()
+    if (app.user && !splash) {
+      handleShared()
+      flush()
+    }
+  })
+
+  // Kuyruk bildirimleri: kuyruğa alındı / gönderildi / reddedildi.
+  let lastTick = net.queuedTick
+  $effect(() => {
+    if (net.queuedTick !== lastTick) {
+      lastTick = net.queuedTick
+      toast(t('off.queued'))
+    }
+  })
+  $effect(() => {
+    if (!net.failed.length) return
+    const f = net.failed[0]
+    toast(t('off.failed', { e: f.error || f.label }), 'err')
+    net.failed = net.failed.slice(1)
   })
 
   // Görülmemiş tanıtım turu varsa ana sayfa açıkken (panel yokken) bir kez göster.
@@ -65,7 +92,7 @@
     return () => clearTimeout(timer)
   })
 
-  const pages = { home: Home, transactions: Transactions, accounts: Accounts, account: AccountDetail, groups: Groups, group: GroupDetail, settings: Settings, goals: Goals, recurring: Recurring, rates: Rates, payees: Payees }
+  const pages = { home: Home, transactions: Transactions, accounts: Accounts, account: AccountDetail, groups: Groups, group: GroupDetail, settings: Settings, goals: Goals, recurring: Recurring, rates: Rates, payees: Payees, inbox: Inbox, budgets: Budgets }
   const Page = $derived(pages[route.name] || Home)
 </script>
 
@@ -75,13 +102,16 @@
       <main class="scroller"><Page /></main>
     {/key}
     {#if route.name !== 'settings'}<Nav />{/if}
-    {#if app.sheet}
+    {#if app.sheet?.kind === 'transfer'}
+      {#key app.sheet}<TransferSheet sheet={app.sheet} />{/key}
+    {:else if app.sheet}
       {#key app.sheet}<AddSheet sheet={app.sheet} />{/key}
     {/if}
   {:else}
     <main class="scroller"><Login /></main>
   {/if}
 {/if}
+{#if app.user}<OfflineBar />{/if}
 {#if app.tour && app.user}
   {#key app.tour}<Tour id={app.tour} />{/key}
 {/if}

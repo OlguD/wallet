@@ -26,8 +26,8 @@
       }
       if (mode === 'edit') await api.patch(`/groups/${group.id}`, { name })
       if (mode === 'member') {
-        await api.post(`/groups/${group.id}/members`, { username })
-        toast(t('grp.member_added'))
+        await api.post(`/groups/${group.id}/invites`, { username })
+        toast(t('inv.sent'))
       }
       await refresh()
       onsaved?.()
@@ -68,7 +68,7 @@
         <input class="input" bind:value={name} placeholder={t('grp.name_ph')} maxlength="64" required />
       </label>
     {/if}
-    <button class="btn" disabled={busy}>{mode === 'create' ? t('common.create') : mode === 'member' ? t('common.add') : t('common.save')}</button>
+    <button class="btn" disabled={busy}>{mode === 'create' ? t('common.create') : mode === 'member' ? t('inv.invite') : t('common.save')}</button>
     {#if mode === 'edit'}<button type="button" class="btn danger" onclick={leave}>{t('grp.leave')}</button>{/if}
   </form>
 </Sheet>

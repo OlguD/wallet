@@ -46,6 +46,15 @@
   const myNets = $derived(balances.balances.filter((b) => b.user_id === me && b.net !== 0))
   const name = (id, username) => (id === me ? t('common.you') : username)
 
+  async function cancelInvite(inv) {
+    if (!confirm(t('inv.cancel') + '?')) return
+    try {
+      group = await api.del(`/groups/${route.id}/invites/${inv.id}`)
+    } catch (e) {
+      toast(errorText(e), 'err')
+    }
+  }
+
   async function removeSettlement(s) {
     if (!confirm(t('common.confirm_delete'))) return
     try {
@@ -70,12 +79,19 @@
   {:else if group}
     <section class="members">
       {#each group.members as m}
-        <span class="member" title={m.username}>
+        <span class="member" class:gone={m.deleted} title={m.deleted ? t('grp.deleted_member', { name: m.username }) : m.username}>
           <span class="avatar sm">{m.username.charAt(0)}</span>
           <span class="mn">{m.user_id === me ? t('common.you') : m.username}</span>
         </span>
       {/each}
-      <button type="button" class="member add" onclick={() => (sheet = 'member')}>
+      {#each group.invites || [] as inv (inv.id)}
+        <button type="button" class="member pending" title={t('inv.cancel')} onclick={() => cancelInvite(inv)}>
+          <span class="avatar sm">{inv.invitee_name.charAt(0)}</span>
+          <span class="mn">{inv.invitee_name}</span>
+          <span class="tag">{t('inv.pending')}</span>
+        </button>
+      {/each}
+      <button type="button" class="member add" data-tour="invite" onclick={() => (sheet = 'member')}>
         <span class="avatar sm"><Icon d={I.userPlus} size={18} /></span>
         <span class="mn">{t('common.add')}</span>
       </button>
@@ -285,5 +301,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .member.gone {
+    opacity: 0.45;
+  }
+  .member.pending {
+    opacity: 0.7;
+    border: none;
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  .member .tag {
+    font-size: 10px;
+    color: var(--muted);
   }
 </style>

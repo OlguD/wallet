@@ -1,5 +1,5 @@
 // Uygulama kabuğunu önbelleğe alır; API istekleri her zaman ağdan gider.
-const CACHE = 'cuzdan-v3'
+const CACHE = 'cuzdan-v4'
 // Android paylaş menüsünden gelen dekont, uygulama açılana kadar burada bekler.
 const SHARE_CACHE = 'cuzdan-share'
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png']
@@ -70,3 +70,39 @@ self.addEventListener('fetch', (e) => {
     }),
   )
 })
+
+// Web Push: bildirimi göster; dokununca ilgili sayfayı aç (uygulama açıksa ona geç).
+self.addEventListener('push', (e) => {
+  let d = {}
+  try {
+    d = e.data ? e.data.json() : {}
+  } catch (err) {
+    d = { title: e.data ? e.data.text() : 'Cüzdan' }
+  }
+  e.waitUntil(
+    self.registration.showNotification(d.title || 'Cüzdan', {
+      body: d.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: d.tag,
+      data: { url: d.url || '/inbox' },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const url = new URL(e.notification.data?.url || '/inbox', self.location.origin).href
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          c.navigate?.(url)
+          return c.focus()
+        }
+      }
+      return self.clients.openWindow(url)
+    }),
+  )
+})
+

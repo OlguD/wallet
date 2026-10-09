@@ -1,6 +1,7 @@
 <script>
   import Icon from './Icon.svelte'
   import { catInfo } from '../lib/categories.js'
+  import { I } from '../lib/icons.js'
   import { fmt, MINUS } from '../lib/money.js'
   import { t, dayLabel, timeLabel, shortDate } from '../lib/i18n.js'
   import { prefs } from '../lib/prefs.svelte.js'
@@ -9,8 +10,11 @@
   // context: 'personal' (kendi hesap geçmişim) | 'group' (grup harcamaları)
   let { tx, context = 'personal', delay = 0, showTime = true } = $props()
 
-  const cat = $derived(catInfo(tx))
-  const title = $derived(tx.description || tx.counterparty_name || t('cat.' + cat.id))
+  const cat = $derived(tx.transfer_peer_id ? { id: 'transfer', icon: I.swap, tint: '#E6E2D8' } : catInfo(tx))
+  const isTransfer = $derived(!!tx.transfer_peer_id)
+  const title = $derived(
+    isTransfer ? (tx.type === 'expense' ? `${tx.account_name} → ${tx.transfer_account_name}` : `${tx.transfer_account_name} → ${tx.account_name}`) : tx.description || tx.counterparty_name || t('cat.' + cat.id),
+  )
   const groupName = $derived(tx.group_id ? app.groups.find((g) => g.id === tx.group_id)?.name : null)
   const mine = $derived(tx.user_id === app.user?.id)
   const myShare = $derived(tx.splits?.find((s) => s.user_id === app.user?.id)?.amount)
@@ -49,7 +53,7 @@
     </span>
     <span class="grow">
       <span class="title">{title}</span>
-      <span class="sub">{sub}</span>
+      <span class="sub">{#if tx.pending}<span class="pend">{t('off.pending')}</span> · {/if}{sub}</span>
     </span>
     <span class="end">
       <span class="amount" class:pos={tx.type === 'income'}>{amount}</span>
@@ -110,5 +114,9 @@
   }
   .aft {
     color: var(--muted);
+  }
+  .pend {
+    color: #e8a33d;
+    font-weight: 600;
   }
 </style>

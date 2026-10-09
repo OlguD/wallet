@@ -13,17 +13,29 @@
   let loading = $state(true)
   let filter = $state('all') // all | income | expense
   let accountFilter = $state(null)
+  let query = $state('')
+  let q = $state('') // gecikmeli arama metni
+
+  // Yazarken her tuşta istek atılmasın.
+  $effect(() => {
+    const v = query.trim()
+    const id = setTimeout(() => (q = v), 280)
+    return () => clearTimeout(id)
+  })
 
   $effect(() => {
     app.version
     const range = monthRange(app.month)
     const acc = accountFilter
+    const search = q
     loading = true
+    // Arama yapılırken tüm zamanlarda aranır.
     api
-      .get('/transactions', { ...range, account_id: acc, limit: 200 })
+      .get('/transactions', { ...(search ? {} : range), account_id: acc, q: search, limit: 200 })
       .then((r) => (list = r))
       .finally(() => (loading = false))
   })
+  const exportUrl = $derived(`/api/export/transactions.csv?from=${monthRange(app.month).from}&to=${monthRange(app.month).to}`)
 
   function move(d) {
     shiftMonth(d)
@@ -63,6 +75,15 @@
     <div><small>{t('common.net')} · {symbol(mt.currency)}</small><b class="num">{fmt(mt.net, 'always')}</b></div>
   </div>
 
+  <div class="search-row" data-tour="search">
+    <label class="search">
+      <Icon d={I.search} size={17} />
+      <input type="search" bind:value={query} placeholder={t('tx.search')} enterkeyhint="search" />
+      {#if query}<button type="button" aria-label={t('common.close')} onclick={() => (query = '')}><Icon d={I.x} size={15} stroke={2.2} /></button>{/if}
+    </label>
+    <a class="icon-btn dl" href={exportUrl} download aria-label={t('tx.export')} title={t('tx.export')}><Icon d={I.download} size={18} /></a>
+  </div>
+
   <div class="chips">
     {#each ['all', 'expense', 'income'] as f}
       <button type="button" class="chip small" aria-pressed={filter === f} onclick={() => (filter = f)}>
@@ -91,7 +112,7 @@
       </div>
     </section>
   {/each}
-  {#if !loading && !days.length}<p class="empty">{t('tx.empty')}</p>{/if}
+  {#if !loading && !days.length}<p class="empty">{q ? t('tx.no_results') : t('tx.empty')}</p>{/if}
 </div>
 
 <style>
@@ -186,5 +207,45 @@
   }
   .day + .day {
     margin-top: -6px;
+  }
+  .search-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: -8px;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    outline: none;
+    color: var(--fg);
+  }
+  .search button {
+    border: none;
+    background: none;
+    color: var(--muted);
+    padding: 4px;
+    display: flex;
+  }
+  .dl {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg);
   }
 </style>

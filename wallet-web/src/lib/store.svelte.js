@@ -1,6 +1,8 @@
 // Uygulama durumu: oturum, hesaplar, gruplar, seçili ay ve aylık özet.
 import { api } from './api.js'
 import { convert } from './fx.js'
+import { setSyncedHandler } from './offline.svelte.js'
+import { t } from './i18n.js'
 
 const firstOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1)
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -14,6 +16,8 @@ export const app = $state({
   summary: null,
   rates: null, // Sun Döviz kurları (GET /rates)
   inbox: [], // işlenmeyi bekleyen dekontlar (Kestirme / paylaş)
+  invites: [], // bekleyen grup davetleri
+  notifications: { items: [], unread: 0 },
   tour: null, // gösterilen tanıtım turunun kimliği
   // Veri değişince artar; sayfalar $effect ile izleyip yeniden yükler.
   version: 0,
@@ -45,22 +49,33 @@ export async function loadSession() {
 
 export async function refresh() {
   if (!app.user) return
-  const [accounts, groups, summary] = await Promise.all([
+  // Çevrimdışıyken bazıları önbellekte olmayabilir; olanlar yine güncellenir.
+  const [accounts, groups, summary] = await Promise.allSettled([
     api.get('/accounts'),
     api.get('/groups'),
     api.get('/summary', monthRange()),
   ])
-  app.accounts = accounts
-  app.groups = groups
-  app.summary = summary
+  if (accounts.status === 'fulfilled') app.accounts = accounts.value
+  if (groups.status === 'fulfilled') app.groups = groups.value
+  if (summary.status === 'fulfilled') app.summary = summary.value
   app.version++
   loadRates()
   loadInbox()
 }
 
+// Gelen kutusu: bekleyen dekontlar, grup davetleri ve bildirimler.
 export function loadInbox() {
-  return api.get('/receipts', { status: 'pending' }).then((r) => (app.inbox = r)).catch(() => {})
+  return Promise.all([
+    api.get('/receipts', { status: 'pending' }).then((r) => (app.inbox = r)),
+    api.get('/invites').then((r) => (app.invites = r)),
+    api.get('/notifications').then((r) => (app.notifications = r)),
+  ]).catch(() => {})
 }
+
+/** Gelen kutusu rozeti: okunmamış bildirim + bekleyen dekont + davet. */
+export const inboxCount = () => app.notifications.unread + app.inbox.length
+
+export const openTransfer = (preset = {}) => (app.sheet = { kind: 'transfer', preset })
 
 // Kurlar ayrı yüklenir; kaynak erişilemezse uygulama yine çalışır.
 export function loadRates() {
@@ -86,6 +101,8 @@ export function signedOut() {
   app.summary = null
   app.sheet = null
   app.inbox = []
+  app.invites = []
+  app.notifications = { items: [], unread: 0 }
 }
 
 let toastTimer
@@ -96,7 +113,7 @@ export function toast(text, kind = 'ok') {
 }
 
 export const openAdd = (preset = {}) => (app.sheet = { kind: 'add', preset })
-export const openEdit = (tx) => (app.sheet = { kind: 'edit', tx })
+export const openEdit = (tx) => (app.sheet = tx.transfer_peer_id ? { kind: 'transfer', tx } : { kind: 'edit', tx })
 export const closeSheet = () => (app.sheet = null)
 
 /** Toplam bakiye: para birimine göre; ana para birimi TRY (yoksa ilk hesabınki). */
@@ -126,3 +143,10 @@ export function monthTotals() {
 
 export const accountMonth = (id) => app.summary?.accounts?.find((a) => a.account_id === id) || { income: 0, expense: 0 }
 export const accountIndex = (id) => app.accounts.findIndex((a) => a.id === id)
+
+// Kuyruktaki değişiklikler sunucuya ulaşınca verileri tazele.
+setSyncedHandler((n) => {
+  toast(t('off.synced', { n }))
+  refresh().catch(() => {})
+})
+

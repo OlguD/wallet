@@ -13,7 +13,7 @@
   import { t, errorText, longDate, dayLabel } from '../lib/i18n.js'
   import { fmt, symbol, MINUS, keypadPress, keypadDisplay, keypadToKurus, kurusToKeypad, parseAmount } from '../lib/money.js'
   import { prefs } from '../lib/prefs.svelte.js'
-  import { app, closeSheet, refresh, toast, accountIndex } from '../lib/store.svelte.js'
+  import { app, closeSheet, refresh, toast, accountIndex, openTransfer } from '../lib/store.svelte.js'
 
   let { sheet } = $props()
 
@@ -383,6 +383,7 @@
         <div class="seg" role="group">
           <button type="button" aria-pressed={type === 'expense'} onclick={() => setType('expense')}>{t('common.expense')}</button>
           <button type="button" aria-pressed={type === 'income'} onclick={() => setType('income')}>{t('common.income')}</button>
+          {#if !editing && app.accounts.length > 1}<button type="button" data-tour="transfer" onclick={() => openTransfer({ fromId: accountId })}>{t('tr.tab')}</button>{/if}
         </div>
         {#if editing}
           <button type="button" class="icon-btn" aria-label={t('common.delete')} onclick={remove}><Icon d={I.trash} size={18} /></button>
@@ -425,6 +426,7 @@
         <div class="seg" role="group">
           <button type="button" aria-pressed={type === 'expense'} onclick={() => setType('expense')}>{t('common.expense')}</button>
           <button type="button" aria-pressed={type === 'income'} onclick={() => setType('income')}>{t('common.income')}</button>
+          {#if !editing && app.accounts.length > 1}<button type="button" data-tour="transfer" onclick={() => openTransfer({ fromId: accountId })}>{t('tr.tab')}</button>{/if}
         </div>
         {#if editing}<button type="button" class="link-btn danger-link" onclick={remove}>{t('common.delete')}</button>{/if}
       </div>
@@ -472,6 +474,7 @@
         <div class="seg seg-c" role="group" data-type={type}>
           <button type="button" aria-pressed={type === 'expense'} onclick={() => setType('expense')}>{t('common.expense')}</button>
           <button type="button" aria-pressed={type === 'income'} onclick={() => setType('income')}>{t('common.income')}</button>
+          {#if !editing && app.accounts.length > 1}<button type="button" data-tour="transfer" onclick={() => openTransfer({ fromId: accountId })}>{t('tr.tab')}</button>{/if}
         </div>
       </header>
       {@render amountBlock()}

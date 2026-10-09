@@ -25,10 +25,29 @@ export const TOURS = [
       { target: 'nav-transactions', title: 'tour.tx.title', body: 'tour.tx.body' },
       { target: 'nav-accounts', title: 'tour.accounts.title', body: 'tour.accounts.body' },
       { target: 'nav-groups', title: 'tour.groups.title', body: 'tour.groups.body' },
+      { target: 'inbox', title: 'tour.inbox.title', body: 'tour.inbox.body' },
+      { target: 'budgets', title: 'tour.budgets.title', body: 'tour.budgets.body' },
+      { target: 'nav-add', title: 'tour.transfer.title', body: 'tour.transfer.body' },
+      { target: 'nav-transactions', title: 'tour.search.title', body: 'tour.search.body' },
+      { target: 'settings', title: 'tour.security.title', body: 'tour.security.body' },
+      { title: 'tour.offline.title', body: 'tour.offline.body' },
       { title: 'tour.done.title', body: 'tour.done.body' },
     ],
   },
-  // Örnek (yeni özellik): { id: 'budgets-2026-11', steps: [{ target: 'budgets', title: '...', body: '...' }] },
+  // 2026-10-10: gelen kutusu + davetler, bütçeler, transfer, arama/CSV, bildirim + şifre, çevrimdışı.
+  {
+    id: 'update-2026-10-10',
+    steps: [
+      { title: 'tour.update.title', body: 'tour.update.body' },
+      { target: 'inbox', title: 'tour.inbox.title', body: 'tour.inbox.body' },
+      { target: 'nav-groups', title: 'tour.invite.title', body: 'tour.invite.body' },
+      { target: 'budgets', title: 'tour.budgets.title', body: 'tour.budgets.body' },
+      { target: 'nav-add', title: 'tour.transfer.title', body: 'tour.transfer.body' },
+      { target: 'nav-transactions', title: 'tour.search.title', body: 'tour.search.body' },
+      { target: 'settings', title: 'tour.security.title', body: 'tour.security.body' },
+      { title: 'tour.offline.title', body: 'tour.offline.body' },
+    ],
+  },
 ]
 
 /** Kullanıcının henüz görmediği ilk tur; yoksa null. */

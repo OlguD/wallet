@@ -11,6 +11,8 @@ const routes = [
   ['recurring', /^\/recurring$/],
   ['rates', /^\/rates$/],
   ['payees', /^\/payees$/],
+  ['inbox', /^\/inbox$/],
+  ['budgets', /^\/budgets$/],
 ]
 
 function match(path) {
