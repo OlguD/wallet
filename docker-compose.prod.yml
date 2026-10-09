@@ -1,5 +1,39 @@
 # Sunucuda: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# traefik: HTTPS (Let's Encrypt, HTTP-01) ve yönlendirme
+#   https://DOMAIN/api/*  → api:8080 (/api öneki kaldırılır)
+#   https://DOMAIN/*      → web:80  (arayüz)
 services:
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=wallet_edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls.certresolver=le
+      # Cloudflare proxy arkasında gerçek istemci IP'si için (Cloudflare IP aralıkları).
+      - --entrypoints.websecure.forwardedheaders.trustedips=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-}
+      - --log.level=INFO
+      - --accesslog=false
+      - --global.sendanonymoususage=false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - edge
+
   db:
     image: postgres:17
     restart: unless-stopped
@@ -14,7 +48,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    # Port dışarı açılmaz; sadece api erişir.
+    networks:
+      - internal
 
   api:
     build: ./wallet-api
@@ -30,26 +65,46 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - receipts:/data/receipts
+    networks:
+      - internal
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`${DOMAIN:?DOMAIN gerekli}`) && PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.middlewares=api-strip,api-body,secure-headers
+      - traefik.http.middlewares.api-strip.stripprefix.prefixes=/api
+      # Dekont yüklemeleri (10 MB) için gövde sınırı.
+      - traefik.http.middlewares.api-body.buffering.maxRequestBodyBytes=12582912
+      - traefik.http.services.api.loadbalancer.server.port=8080
 
   web:
     build: ./wallet-web
     restart: unless-stopped
     depends_on:
       - api
-    environment:
-      DOMAIN: ${DOMAIN:?DOMAIN gerekli}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL gerekli}
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN gerekli}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
+    networks:
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`${DOMAIN:?DOMAIN gerekli}`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.middlewares=secure-headers
+      - traefik.http.services.web.loadbalancer.server.port=80
+      - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.secure-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.secure-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.secure-headers.headers.frameDeny=true
+      - traefik.http.middlewares.secure-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+      - traefik.http.middlewares.secure-headers.headers.permissionsPolicy=geolocation=(), microphone=(), camera=()
+
+networks:
+  edge:
+    name: wallet_edge
+  internal:
+    internal: true
 
 volumes:
   db_data:
   receipts:
-  caddy_data:
-  caddy_config:
+  letsencrypt:
