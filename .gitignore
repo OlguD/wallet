@@ -1,1 +1,6 @@
 wallet-api/.gitignore
+
+# yerel ortam ve veriler
+wallet-api/.env
+wallet-api/data/
+.DS_Store
