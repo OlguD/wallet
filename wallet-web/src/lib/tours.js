@@ -33,6 +33,7 @@ export const TOURS = [
       { title: 'tour.offline.title', body: 'tour.offline.body' },
       { target: 'nav-accounts', title: 'tour.cards.title', body: 'tour.cards.body' },
       { target: 'goals', title: 'tour.goalfx.title', body: 'tour.goalfx.body' },
+      { target: 'nav-groups', title: 'tour.grouppay.title', body: 'tour.grouppay.body' },
       { title: 'tour.done.title', body: 'tour.done.body' },
     ],
   },
@@ -57,6 +58,15 @@ export const TOURS = [
       { title: 'tour.update.title', body: 'tour.update.body' },
       { target: 'nav-accounts', title: 'tour.cards.title', body: 'tour.cards.body' },
       { target: 'goals', title: 'tour.goalfx.title', body: 'tour.goalfx.body' },
+    ],
+  },
+  // 2026-10-10 (akşam): gruptakilere (dövizli) para gönderme, gelen kutusunda hesaba işleme.
+  {
+    id: 'group-payments',
+    steps: [
+      { title: 'tour.update.title', body: 'tour.update.body' },
+      { target: 'nav-groups', title: 'tour.grouppay.title', body: 'tour.grouppay.body' },
+      { target: 'inbox', title: 'tour.inbox.title', body: 'tour.inbox.body' },
     ],
   },
 ]

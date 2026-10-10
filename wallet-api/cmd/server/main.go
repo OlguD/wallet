@@ -189,6 +189,9 @@ func main() {
 	protected("GET /groups/{id}/settlements", groupHandler.ListSettlements)
 	protected("POST /groups/{id}/settlements", groupHandler.CreateSettlement)
 	protected("DELETE /groups/{id}/settlements/{sid}", groupHandler.DeleteSettlement)
+	protected("GET /settlements/pending", groupHandler.PendingSettlements)
+	protected("POST /settlements/{id}/book", groupHandler.BookSettlement)
+	protected("POST /settlements/{id}/dismiss", groupHandler.DismissSettlement)
 	protected("GET /groups/{id}/recurring", recurringHandler.ListByGroup)
 
 	protected("GET /recurring", recurringHandler.List)

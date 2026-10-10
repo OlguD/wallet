@@ -21,7 +21,7 @@
   let settlements = $state([])
   let summary = $state(null)
   let rules = $state([])
-  let sheet = $state(null) // 'edit' | 'member' | { settle } | 'month'
+  let sheet = $state(null) // 'edit' | 'member' | 'pay' | { settle } | 'month'
   let notFound = $state(false)
 
   const me = $derived(app.user?.id)
@@ -103,7 +103,12 @@
       {:else}
         <span>{t('grp.settled')}</span>
       {/each}
-      <button type="button" class="btn small" onclick={() => openAdd({ groupId: group.id })}><Icon d={I.plus} size={16} stroke={2.4} />{t('common.expense')}</button>
+      <span class="acts">
+        {#if group.members.some((m) => m.user_id !== me && !m.deleted)}
+          <button type="button" class="btn small ghost" data-tour="group-pay" onclick={() => (sheet = 'pay')}><Icon d={I.swap} size={16} />{t('pay.button')}</button>
+        {/if}
+        <button type="button" class="btn small" onclick={() => openAdd({ groupId: group.id })}><Icon d={I.plus} size={16} stroke={2.4} />{t('common.expense')}</button>
+      </span>
     </div>
 
     <div class="tabs" role="tablist">
@@ -211,6 +216,8 @@
   <MonthPicker onclose={() => (sheet = null)} />
 {:else if sheet?.settle}
   <SettleSheet groupId={route.id} s={sheet.settle} onclose={() => (sheet = null)} onsaved={load} />
+{:else if sheet === 'pay' && group}
+  <SettleSheet groupId={route.id} members={group.members} onclose={() => (sheet = null)} onsaved={load} />
 {/if}
 
 <style>
@@ -257,6 +264,11 @@
   }
   .status > span {
     flex: 1;
+  }
+  .status > .acts {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
   }
   .debt {
     display: flex;

@@ -1,6 +1,7 @@
 <script>
   // Gelen kutusu: grup davetleri, Kestirme/paylaş ile gelen dekontlar ve bildirimler.
   import Icon from '../components/Icon.svelte'
+  import PaymentItem from '../components/PaymentItem.svelte'
   import { I } from '../lib/icons.js'
   import { api } from '../lib/api.js'
   import { parseStored } from '../lib/receipt.js'
@@ -61,8 +62,8 @@
   }
 
   const iconFor = (kind) =>
-    kind.startsWith('budget') ? I.target : kind === 'recurring' ? I.repeat : kind.startsWith('invite') ? I.userPlus : kind === 'group_expense' ? I.users : I.bell
-  const empty = $derived(!app.invites.length && !app.inbox.length && !app.notifications.items.length)
+    kind.startsWith('budget') ? I.target : kind === 'settlement' ? I.swap : kind === 'recurring' ? I.repeat : kind.startsWith('invite') ? I.userPlus : kind === 'group_expense' ? I.users : I.bell
+  const empty = $derived(!app.invites.length && !app.payments.length && !app.inbox.length && !app.notifications.items.length)
 </script>
 
 <div class="page">
@@ -71,6 +72,13 @@
     <h1 class="title" style="flex: 1">{t('inbox.title')}</h1>
   </header>
   <div class="rule"></div>
+
+  {#if app.payments.length}
+    <section class="section">
+      <h2 class="h-section">{t('inbox.payments')}</h2>
+      {#each app.payments as p (p.id)}<PaymentItem {p} />{/each}
+    </section>
+  {/if}
 
   {#if app.invites.length}
     <section class="section">

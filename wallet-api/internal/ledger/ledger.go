@@ -315,7 +315,7 @@ FOR UPDATE`, txID,
 func checkNotSettlement(ctx context.Context, tx pgx.Tx, txID int) error {
 	var linked bool
 	err := tx.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM settlements WHERE transaction_id = $1)", txID,
+		"SELECT EXISTS (SELECT 1 FROM settlements WHERE $1 IN (transaction_id, counter_transaction_id))", txID,
 	).Scan(&linked)
 	if err != nil {
 		return err

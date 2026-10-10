@@ -17,6 +17,7 @@ export const app = $state({
   rates: null, // Sun Döviz kurları (GET /rates)
   inbox: [], // işlenmeyi bekleyen dekontlar (Kestirme / paylaş)
   invites: [], // bekleyen grup davetleri
+  payments: [], // hesaba işlenmeyi bekleyen grup ödemeleri (başka üyenin girdiği)
   notifications: { items: [], unread: 0 },
   tour: null, // gösterilen tanıtım turunun kimliği
   // Veri değişince artar; sayfalar $effect ile izleyip yeniden yükler.
@@ -68,12 +69,17 @@ export function loadInbox() {
   return Promise.all([
     api.get('/receipts', { status: 'pending' }).then((r) => (app.inbox = r)),
     api.get('/invites').then((r) => (app.invites = r)),
+    api.get('/settlements/pending').then((r) => (app.payments = r)),
     api.get('/notifications').then((r) => (app.notifications = r)),
   ]).catch(() => {})
 }
 
-/** Gelen kutusu rozeti: okunmamış bildirim + bekleyen dekont + davet. */
-export const inboxCount = () => app.notifications.unread + app.inbox.length
+/** Gelen kutusu rozeti: okunmamış bildirim + bekleyen dekont + bekleyen ödeme
+ *  (ödemenin kendi okunmamış bildirimi iki kez sayılmaz). */
+export const inboxCount = () => {
+  const paymentNotes = app.notifications.items.filter((n) => n.kind === 'settlement' && !n.read_at).length
+  return app.notifications.unread - paymentNotes + app.inbox.length + app.payments.length
+}
 
 export const openTransfer = (preset = {}) => (app.sheet = { kind: 'transfer', preset })
 
@@ -102,6 +108,7 @@ export function signedOut() {
   app.sheet = null
   app.inbox = []
   app.invites = []
+  app.payments = []
   app.notifications = { items: [], unread: 0 }
 }
 

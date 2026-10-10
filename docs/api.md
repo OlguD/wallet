@@ -86,8 +86,13 @@ Kart hesapları (`kind: card`): borç negatif bakiyedir, kalan limit = `credit_l
 | GET | `/groups/{id}/balances` | – | kim kime borçlu (aşağıda) |
 | GET | `/groups/{id}/summary?from=&to=` | – | dönem giderleri |
 | GET | `/groups/{id}/settlements` | – | `[Settlement]` |
-| POST | `/groups/{id}/settlements` | `{from_user_id, to_user_id, amount, currency?, account_id?, note?, occurred_at?}` | 201 `Settlement` |
-| DELETE | `/groups/{id}/settlements/{sid}` | – | 204 |
+| POST | `/groups/{id}/settlements` | `{from_user_id, to_user_id, amount, currency?, account_id?, account_amount?, note?, occurred_at?}` | 201 `Settlement` |
+| DELETE | `/groups/{id}/settlements/{sid}` | – | 204 (iki tarafın hesap işlemleri de silinir) |
+| GET | `/settlements/pending` | – | `[Settlement]` (karşı tarafın hesabına işlemesi beklenenler) |
+| POST | `/settlements/{id}/book` | `{account_id, account_amount?}` | 204 |
+| POST | `/settlements/{id}/dismiss` | – | 204 |
+
+Hesaplaşmayı giren tarafın karşısındaki üye gelen kutusunda ödemeyi görür (`counter_status: pending`) ve kendi hesabına işler (alansa gelir, ödeyense gider) ya da kapatır. Borç `currency` cinsinden tutulur; hesabın para birimi farklıysa `account_amount` (hesabın para biriminde, kur uygulanmış) zorunludur.
 | GET | `/groups/{id}/recurring` | – | grubun tekrarlayan giderleri |
 
 Üye olunmayan grup için her zaman 404 döner.
