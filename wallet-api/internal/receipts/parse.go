@@ -184,15 +184,18 @@ var (
 	senderName = field{
 		labels: []string{
 			"gonderen adi soyadi/unvani", "gonderen adi soyadi", "gonderen ad soyad", "gonderen adi/unvani", "gonderen unvani",
-			"gonderen adi", "gonderen", "borclu adi soyadi", "borclu adi", "borclu", "hesap sahibi adi soyadi", "hesap sahibi",
+			"gonderen adi", "gonderen", "gonderici hesap", "gonderici adi", "gonderici", "borclu adi soyadi", "borclu adi", "borclu", "hesap sahibi adi soyadi", "hesap sahibi",
 			"musteri adi soyadi", "musteri adi", "musteri unvani", "kimden",
 		},
 		skip: nameSkip,
 	}
-	recipientIBAN = field{labels: []string{"alici iban", "alici hesap iban", "alici hesap no/iban", "alacakli iban", "lehtar iban", "alici hesap", "karsi iban"}}
-	senderIBAN    = field{labels: []string{"gonderen iban", "gonderen hesap iban", "borclu iban", "gonderen hesap", "hesap iban", "borclu hesap"}}
-	recipientBank = field{labels: []string{"alici banka adi", "alici bankasi", "alici banka", "alacakli banka", "lehtar banka", "karsi banka"}, skip: []string{"kodu", "sube"}}
-	amountField   = field{
+	// Bazı bankalar (İş, Garanti) alıcı adını "Alıcı Hesap" / "Alacaklı Hesap"
+	// satırına hesap numarasının arkasına yazar: "00451 / 6873376 AHMET YILMAZ".
+	recipientAccountName = field{labels: []string{"alici hesap", "alacakli hesap"}}
+	recipientIBAN        = field{labels: []string{"alici iban", "alici hesap iban", "alici hesap no/iban", "alacakli iban", "lehtar iban", "alici hesap", "karsi iban"}}
+	senderIBAN           = field{labels: []string{"gonderen iban", "gonderen hesap iban", "borclu iban", "gonderen hesap", "hesap iban", "borclu hesap"}}
+	recipientBank        = field{labels: []string{"alici banka adi", "alici bankasi", "alici banka", "alacakli banka", "lehtar banka", "karsi banka"}, skip: []string{"kodu", "sube"}}
+	amountField          = field{
 		labels: []string{
 			"islem tutari", "transfer tutari", "gonderilen tutar", "havale tutari", "eft tutari", "fast tutari",
 			"odeme tutari", "odenen tutar", "toplam tutar", "tutar", "tutari", "miktar",
@@ -295,7 +298,7 @@ func moneyToKurus(s string) (int64, bool) {
 }
 
 var (
-	dmyRe = regexp.MustCompile(`\b([0-3]?[0-9])[./-]([01]?[0-9])[./-](20[0-9]{2})(?:[ T,-]+([0-2]?[0-9])[:.]([0-5][0-9])(?:[:.]([0-5][0-9]))?)?`)
+	dmyRe = regexp.MustCompile(`\b([0-3]?[0-9])[./-]([01]?[0-9])[./-](20[0-9]{2})(?:[ T,/-]+([0-2]?[0-9])[:.]([0-5][0-9])(?:[:.]([0-5][0-9]))?)?`)
 	ymdRe = regexp.MustCompile(`\b(20[0-9]{2})-([01][0-9])-([0-3][0-9])(?:[ T]([0-2][0-9]):([0-5][0-9]))?`)
 )
 
@@ -327,6 +330,9 @@ func parseDate(s string) (date, clock string, ok bool) {
 
 var letterRe = regexp.MustCompile(`\p{L}`)
 
+// accountNoRe hesap numarası önekini atar: "00451 / 6873376 " → "".
+var accountNoRe = regexp.MustCompile(`^[0-9 /*.-]+`)
+
 // cleanName dekonttaki isim değerini sadeleştirir; isim değilse "".
 func cleanName(s string) string {
 	if i := ibanRe.FindStringIndex(s); i != nil {
@@ -334,7 +340,7 @@ func cleanName(s string) string {
 	}
 	// Aynı satırda başka bir etiket devam ediyorsa kes ("AHMET YILMAZ  IBAN: ...").
 	fs := foldStr(s)
-	for _, cut := range []string{" iban", " hesap no", " banka", " tc kimlik", " vkn", " tutar", " tarih", " sube"} {
+	for _, cut := range []string{" iban", " hesap no", " banka", " tc kimlik", " vkn", " tutar", " tarih", " sube", " alici", " alacakli"} {
 		if i := strings.Index(fs, cut); i > 0 {
 			s = string([]rune(s)[:len([]rune(fs[:i]))])
 			fs = foldStr(s)
@@ -420,6 +426,14 @@ func Parse(text string) Parsed {
 		if n := cleanName(h.value); n != "" {
 			p.RecipientName = n
 			break
+		}
+	}
+	if p.RecipientName == "" {
+		for _, h := range recipientAccountName.find(ls) {
+			if n := cleanName(accountNoRe.ReplaceAllString(h.value, "")); n != "" {
+				p.RecipientName = n
+				break
+			}
 		}
 	}
 	for _, h := range senderName.find(ls) {

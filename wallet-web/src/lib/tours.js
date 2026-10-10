@@ -35,6 +35,9 @@ export const TOURS = [
       { target: 'goals', title: 'tour.goalfx.title', body: 'tour.goalfx.body' },
       { target: 'nav-groups', title: 'tour.grouppay.title', body: 'tour.grouppay.body' },
       { target: 'push-prompt', title: 'tour.push.title', body: 'tour.push.body' },
+      { target: 'report', title: 'tour.report.title', body: 'tour.report.body' },
+      { target: 'inbox', title: 'tour.reminders.title', body: 'tour.reminders.body' },
+      { target: 'settings', title: 'tour.faceid.title', body: 'tour.faceid.body' },
       { title: 'tour.done.title', body: 'tour.done.body' },
     ],
   },
@@ -74,6 +77,17 @@ export const TOURS = [
   {
     id: 'push-prompt',
     steps: [{ target: 'push-prompt', title: 'tour.push.title', body: 'tour.push.body' }],
+  },
+  // 2026-10-10: aylık rapor, hatırlatmalar + canlı gelen kutusu, borca sayılmayan gönderme.
+  {
+    id: 'report-reminders',
+    steps: [
+      { title: 'tour.update.title', body: 'tour.update.body' },
+      { target: 'report', title: 'tour.report.title', body: 'tour.report.body' },
+      { target: 'inbox', title: 'tour.reminders.title', body: 'tour.reminders.body' },
+      { target: 'nav-groups', title: 'tour.grouppay.title', body: 'tour.grouppay.body' },
+      { target: 'settings', title: 'tour.faceid.title', body: 'tour.faceid.body' },
+    ],
   },
 ]
 

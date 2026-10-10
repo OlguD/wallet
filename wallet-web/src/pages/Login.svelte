@@ -5,6 +5,9 @@
   import { t, errorText } from '../lib/i18n.js'
   import { prefs, setLang } from '../lib/prefs.svelte.js'
   import { signedIn } from '../lib/store.svelte.js'
+  import Icon from '../components/Icon.svelte'
+  import { I } from '../lib/icons.js'
+  import { passkeySupported, loginWithPasskey, cancelled } from '../lib/passkey.js'
 
   let mode = $state('login')
   let username = $state('')
@@ -25,6 +28,20 @@
       await signedIn(res.user)
     } catch (err) {
       error = errorText(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  // Face ID: Ayarlar'dan passkey eklemiş kullanıcı adı yazmadan girer.
+  async function faceId() {
+    error = ''
+    busy = true
+    try {
+      const res = await loginWithPasskey()
+      await signedIn(res.user)
+    } catch (err) {
+      if (!cancelled(err)) error = err?.status ? errorText(err) : t('pk.failed')
     } finally {
       busy = false
     }
@@ -55,6 +72,9 @@
     </label>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="btn" disabled={busy}>{mode === 'login' ? t('auth.login') : t('auth.register')}</button>
+    {#if mode === 'login' && passkeySupported()}
+      <button type="button" class="btn ghost" disabled={busy} onclick={faceId}><Icon d={I.faceid} size={18} />{t('pk.login')}</button>
+    {/if}
   </form>
 
   <div class="prefs rise" style="animation-delay: .3s">

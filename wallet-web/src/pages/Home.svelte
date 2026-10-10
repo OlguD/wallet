@@ -260,6 +260,14 @@
       {/if}
     </section>
     <section class="section">
+      <button type="button" class="card shortcut" data-tour="report" onclick={() => navigate('/report')}>
+        <span class="ico"><Icon d={I.pie} size={18} /></span>
+        <span class="grow">
+          <span class="title">{t('rep.title')}</span>
+          <span class="sub">{t('rep.shortcut')}</span>
+        </span>
+        <Icon d={I.right} size={16} stroke={2} />
+      </button>
       <button type="button" class="card shortcut" data-tour="payees" onclick={() => navigate('/payees')}>
         <span class="ico"><Icon d={I.person} size={18} /></span>
         <span class="grow">

@@ -53,9 +53,9 @@ WITH e AS (
   JOIN accounts a ON a.id = t.account_id
   WHERE t.group_id = $1
   UNION ALL
-  SELECT currency, from_user_id, amount FROM settlements WHERE group_id = $1
+  SELECT currency, from_user_id, amount FROM settlements WHERE group_id = $1 AND affects_balance
   UNION ALL
-  SELECT currency, to_user_id, -amount FROM settlements WHERE group_id = $1
+  SELECT currency, to_user_id, -amount FROM settlements WHERE group_id = $1 AND affects_balance
 )
 SELECT e.currency, e.user_id, u.username, SUM(e.amt)::bigint
 FROM e JOIN users u ON u.id = e.user_id

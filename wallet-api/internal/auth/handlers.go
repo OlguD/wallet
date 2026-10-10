@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,8 @@ type Handler struct {
 	DB *pgxpool.Pool
 	// SecureCookie HTTPS arkasında true olmalı.
 	SecureCookie bool
+	// WebAuthn nil ise Face ID (passkey) girişi kapalıdır.
+	WebAuthn *webauthn.WebAuthn
 }
 
 var usernameRe = regexp.MustCompile(`^[a-z0-9_.-]{3,32}$`)

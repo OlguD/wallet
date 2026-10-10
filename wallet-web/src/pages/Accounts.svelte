@@ -49,7 +49,7 @@
           <span class="k">{t('acc.kind.' + a.kind)}</span>
           {#if a.kind === 'card'}
             <span class="b">{fmt(cardDebt(a))} {symbol(a.currency)}</span>
-            <span class="k">{t('card.debt')}{#if a.credit_limit} · {t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) })}{/if}</span>
+            <span class="k">{t('card.debt')}{a.credit_limit ? ' · ' + t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) }) : ''}</span>
           {:else}
             <span class="b">{fmt(a.balance)} {symbol(a.currency)}</span>
           {/if}
@@ -67,7 +67,7 @@
           <span class="grow">
             <span class="title">{a.name}</span>
             {#if a.kind === 'card'}
-              <span class="sub">{t('card.debt')}{#if a.credit_limit} · {t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) })}{/if}</span>
+              <span class="sub">{t('card.debt')}{a.credit_limit ? ' · ' + t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) }) : ''}</span>
             {:else}
               <span class="sub">{t('acc.kind.' + a.kind)} · {t('home.this_month', { v: fmtc(m.income - m.expense, a.currency, 'always') })}</span>
             {/if}

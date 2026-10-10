@@ -1,9 +1,10 @@
 <script>
+  import { passkeySupported, registerPasskey, cancelled } from '../lib/passkey.js'
   import Icon from '../components/Icon.svelte'
   import ThemePicker from '../components/ThemePicker.svelte'
   import { I } from '../lib/icons.js'
   import { api } from '../lib/api.js'
-  import { t, errorText, monthLabel } from '../lib/i18n.js'
+  import { t, errorText, monthLabel, dayLabel } from '../lib/i18n.js'
   import { prefs, setLang } from '../lib/prefs.svelte.js'
   import { back, navigate } from '../lib/router.svelte.js'
   import { app, signedOut, toast, monthRange } from '../lib/store.svelte.js'
@@ -42,6 +43,36 @@
   }
 
   // Şifre değiştirme
+  // Face ID (passkey): bu hesaba eklenmiş cihazlar.
+  let passkeys = $state([])
+  let pkBusy = $state(false)
+  const loadPasskeys = () => api.get('/passkeys').then((r) => (passkeys = r)).catch(() => {})
+  if (passkeySupported()) loadPasskeys()
+  const deviceName = () => (/iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(navigator.userAgent) ? 'iPad' : /Mac/.test(navigator.userAgent) ? 'Mac' : /Android/.test(navigator.userAgent) ? 'Android' : t('pk.device'))
+
+  async function addPasskey() {
+    pkBusy = true
+    try {
+      await registerPasskey(deviceName())
+      toast(t('pk.added'))
+      await loadPasskeys()
+    } catch (e) {
+      if (!cancelled(e)) toast(e?.status ? errorText(e) : t('pk.failed'), 'err')
+    } finally {
+      pkBusy = false
+    }
+  }
+
+  async function removePasskey(p) {
+    if (!confirm(t('pk.remove_confirm', { name: p.name }))) return
+    try {
+      await api.del(`/passkeys/${p.id}`)
+      await loadPasskeys()
+    } catch (e) {
+      toast(errorText(e), 'err')
+    }
+  }
+
   let pw = $state({ current: '', next: '', again: '' })
   let pwBusy = $state(false)
   async function changePassword(e) {
@@ -189,6 +220,20 @@
 
   <section class="section" data-tour="password">
     <h2 class="h-section">{t('set.security')}</h2>
+    {#if passkeySupported()}
+      <div class="card sc" data-tour="faceid">
+        <strong>{t('pk.title')}</strong>
+        <small class="muted">{t('pk.what')}</small>
+        {#each passkeys as p (p.id)}
+          <div class="pk">
+            <Icon d={I.faceid} size={18} />
+            <span class="grow">{p.name} <small class="muted">· {p.last_used_at ? t('pk.used', { d: dayLabel(p.last_used_at) }) : t('pk.added_on', { d: dayLabel(p.created_at) })}</small></span>
+            <button type="button" class="mini" aria-label={t('common.delete')} onclick={() => removePasskey(p)}><Icon d={I.trash} size={15} /></button>
+          </div>
+        {/each}
+        <button type="button" class="btn small" class:ghost={passkeys.length > 0} disabled={pkBusy} onclick={addPasskey}><Icon d={I.faceid} size={16} />{passkeys.length ? t('pk.add_another') : t('pk.add')}</button>
+      </div>
+    {/if}
     <form class="card sc" onsubmit={changePassword}>
       <strong>{t('pw.title')}</strong>
       <input class="input" type="password" autocomplete="current-password" placeholder={t('pw.current')} bind:value={pw.current} required />
@@ -348,5 +393,15 @@
     flex-direction: column;
     gap: 6px;
     font-size: 14px;
+  }
+  .pk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+  }
+  .pk .grow {
+    flex: 1;
+    min-width: 0;
   }
 </style>

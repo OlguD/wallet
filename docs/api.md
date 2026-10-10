@@ -92,6 +92,8 @@ Kart hesapları (`kind: card`): borç negatif bakiyedir, kalan limit = `credit_l
 | POST | `/settlements/{id}/book` | `{account_id, account_amount?}` | 204 |
 | POST | `/settlements/{id}/dismiss` | – | 204 |
 
+`affects_balance: false` (hediye/harçlık) ile oluşturulan hesaplaşma iki tarafın hesabına işlenir ama grup borcunu etkilemez.
+
 Hesaplaşmayı giren tarafın karşısındaki üye gelen kutusunda ödemeyi görür (`counter_status: pending`) ve kendi hesabına işler (alansa gelir, ödeyense gider) ya da kapatır. Borç `currency` cinsinden tutulur; hesabın para birimi farklıysa `account_amount` (hesabın para biriminde, kur uygulanmış) zorunludur.
 | GET | `/groups/{id}/recurring` | – | grubun tekrarlayan giderleri |
 
@@ -264,3 +266,26 @@ Bütçe harcaması: o ay, o para biriminde, o kategorideki (transfer olmayan) gi
 Bildirim türleri: `invite`, `invite_accepted`, `group_expense` (diğer üyelere, kendi paylarıyla), `recurring` (işlenen
 düzenli ödeme), `budget80:YYYY-MM`, `budget:YYYY-MM`. Web Push için `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
 `VAPID_SUBJECT` gerekir (`wallet-api gen-vapid` üretir); yoksa sadece uygulama içi bildirim yazılır.
+
+## Face ID (passkey)
+
+| Yöntem | Yol | Gövde | Yanıt |
+|---|---|---|---|
+| POST | `/auth/passkey/begin` | – (oturumsuz) | `{challenge_id, options}` (WebAuthn assertion seçenekleri) |
+| POST | `/auth/passkey/finish?challenge=ID` | tarayıcının assertion yanıtı | `{user, token}` + oturum çerezi |
+| GET | `/passkeys` | – | `[{id, name, created_at, last_used_at}]` |
+| POST | `/passkeys/register/begin` | – | `{challenge_id, options}` (creation seçenekleri) |
+| POST | `/passkeys/register/finish?challenge=ID&name=iPhone` | tarayıcının attestation yanıtı | 201 passkey |
+| DELETE | `/passkeys/{id}` | – | 204 |
+
+RP ayarı: `WEBAUTHN_RP_ID` (alan adı) ve `WEBAUTHN_ORIGINS` (virgülle tam adresler); yoksa `localhost` / `http://localhost:5173`.
+
+## Canlı olaylar
+
+`GET /events` (Server-Sent Events): kullanıcıya bildirim yazıldığında `event: inbox` gelir; istemci verileri tazeler. 25 sn'de bir `: ping`.
+
+## Hatırlatmalar (sunucu, 30 dk'da bir, 09:00 sonrası)
+
+- Kart: borçlu kartın son ödemesinden 3 gün önce ve son gün (`card_due:*`).
+- Ertesi gün işlenecek düzenli giderler (`rec_due:*`).
+- Ayın 1'inde geçen ayın özeti (`monthly:YYYY-AA`, `/report?month=`).

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -31,6 +32,7 @@ import (
 	"wallet-api/internal/rates"
 	"wallet-api/internal/receipts"
 	"wallet-api/internal/recurring"
+	"wallet-api/internal/reminders"
 	"wallet-api/internal/transactions"
 	"wallet-api/migrations"
 )
@@ -95,6 +97,17 @@ func main() {
 	}
 
 	authHandler := &auth.Handler{DB: pool, SecureCookie: os.Getenv("COOKIE_SECURE") == "true"}
+	// Face ID (passkey): WEBAUTHN_RP_ID alan adı, WEBAUTHN_ORIGINS virgülle ayrılmış tam adresler.
+	// Yerelde varsayılan localhost (Vite :5173).
+	rpID, origins := os.Getenv("WEBAUTHN_RP_ID"), os.Getenv("WEBAUTHN_ORIGINS")
+	if rpID == "" {
+		rpID, origins = "localhost", "http://localhost:5173"
+	}
+	if wa, err := auth.NewWebAuthn(rpID, strings.Split(origins, ",")); err != nil {
+		log.Println("WebAuthn ayarlanamadi, Face ID girisi kapali:", err)
+	} else {
+		authHandler.WebAuthn = wa
+	}
 	accountHandler := &accounts.Handler{DB: pool}
 	txHandler := &transactions.Handler{DB: pool, Loc: loc, Notify: notifier}
 	groupHandler := &groups.Handler{DB: pool, Loc: loc, Notify: notifier}
@@ -119,6 +132,8 @@ func main() {
 	mux.HandleFunc("POST /auth/register", authHandler.Register)
 	mux.HandleFunc("POST /auth/login", authHandler.Login)
 	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
+	mux.HandleFunc("POST /auth/passkey/begin", authHandler.BeginPasskeyLogin)
+	mux.HandleFunc("POST /auth/passkey/finish", authHandler.FinishPasskeyLogin)
 
 	// Oturum gerektiren uçlar.
 	idempotent := idem.Middleware(pool)
@@ -128,9 +143,14 @@ func main() {
 	protected("GET /me", authHandler.Me)
 	protected("POST /me/tours", authHandler.MarkTours)
 	protected("POST /me/password", authHandler.ChangePassword)
+	protected("GET /passkeys", authHandler.ListPasskeys)
+	protected("POST /passkeys/register/begin", authHandler.BeginPasskeyRegistration)
+	protected("POST /passkeys/register/finish", authHandler.FinishPasskeyRegistration)
+	protected("DELETE /passkeys/{id}", authHandler.DeletePasskey)
 	protected("DELETE /me", authHandler.DeleteAccount)
 
 	protected("GET /notifications", notifier.List)
+	protected("GET /events", notifier.Events)
 	protected("POST /notifications/read", notifier.MarkRead)
 	protected("GET /push/key", notifier.Key)
 	protected("POST /push/subscribe", notifier.Subscribe)
@@ -219,10 +239,13 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	srv.RegisterOnShutdown(notifier.StopLive)
 
 	runCtx, stopRunner := context.WithCancel(context.Background())
 	defer stopRunner()
 	runner.Start(runCtx, 15*time.Minute)
+	// Kart son ödeme, yarınki düzenli ödeme ve ay başı özet hatırlatmaları.
+	(&reminders.Runner{DB: pool, Loc: loc, Notify: notifier}).Start(runCtx, 30*time.Minute)
 	go idem.Cleanup(runCtx, pool)
 
 	go func() {
@@ -247,6 +270,9 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status int
 }
+
+// Unwrap http.ResponseController'ın (SSE Flush/SetWriteDeadline) asıl yazıcıya ulaşması için.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code

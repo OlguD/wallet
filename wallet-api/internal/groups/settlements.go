@@ -37,12 +37,14 @@ type Settlement struct {
 	CreatedAt     time.Time `json:"created_at"`
 	// CounterStatus karşı tarafın (kaydı girmeyen) durumu: none, pending, booked, dismissed.
 	CounterStatus string `json:"counter_status"`
+	// AffectsBalance false: hediye/harçlık; grup borcunu etkilemez.
+	AffectsBalance bool `json:"affects_balance"`
 }
 
 const selectSettlement = `
 SELECT s.id, s.group_id, g.name, s.from_user_id, fu.username, s.to_user_id, tu.username,
        s.amount, s.currency, s.transaction_id, s.note, s.created_by, s.occurred_at, s.created_at,
-       s.counter_status
+       s.counter_status, s.affects_balance
 FROM settlements s
 JOIN groups g ON g.id = s.group_id
 JOIN users fu ON fu.id = s.from_user_id
@@ -79,9 +81,11 @@ type settlementRequest struct {
 	AccountID  *int   `json:"account_id"`
 	// AccountAmount hesabın para birimi ödemeninkinden farklıysa hesaba
 	// işlenecek tutar (kur uygulanmış, hesabın para biriminde).
-	AccountAmount *int64     `json:"account_amount"`
-	Note          *string    `json:"note"`
-	OccurredAt    *time.Time `json:"occurred_at"`
+	AccountAmount *int64 `json:"account_amount"`
+	// AffectsBalance verilmezse true (borç kapatma); false: borca sayılmaz.
+	AffectsBalance *bool      `json:"affects_balance"`
+	Note           *string    `json:"note"`
+	OccurredAt     *time.Time `json:"occurred_at"`
 }
 
 // CreateSettlement bir üyenin diğerine yaptığı ödemeyi kaydeder. Kaydı ödeyen
@@ -216,9 +220,10 @@ SELECT (SELECT name FROM groups WHERE id = $1),
 
 	var id int
 	err = tx.QueryRow(ctx, `
-INSERT INTO settlements (group_id, from_user_id, to_user_id, amount, currency, transaction_id, note, created_by, occurred_at, counter_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING id`,
+INSERT INTO settlements (group_id, from_user_id, to_user_id, amount, currency, transaction_id, note, created_by, occurred_at, counter_status, affects_balance)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10) RETURNING id`,
 		groupID, req.FromUserID, req.ToUserID, req.Amount, currency, txID, note, userID, occurredAt,
+		req.AffectsBalance == nil || *req.AffectsBalance,
 	).Scan(&id)
 	if err != nil {
 		httpx.ServerError(w, "settlement insert", err)

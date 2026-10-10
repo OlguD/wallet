@@ -13,17 +13,21 @@ const routes = [
   ['payees', /^\/payees$/],
   ['inbox', /^\/inbox$/],
   ['budgets', /^\/budgets$/],
+  ['report', /^\/report$/],
 ]
 
+// path sorgu içerebilir ("/report?month=2026-10"); eşleşme yol kısmıyla yapılır.
 function match(path) {
+  const [p, q = ''] = path.split('?')
+  const query = Object.fromEntries(new URLSearchParams(q))
   for (const [name, re] of routes) {
-    const m = path.match(re)
-    if (m) return { name, id: m[1] ? Number(m[1]) : null, path }
+    const m = p.match(re)
+    if (m) return { name, id: m[1] ? Number(m[1]) : null, path, query }
   }
-  return { name: 'home', id: null, path: '/' }
+  return { name: 'home', id: null, path: '/', query: {} }
 }
 
-export const route = $state(match(location.pathname))
+export const route = $state(match(location.pathname + location.search))
 
 export function navigate(path, { replace = false } = {}) {
   if (path === route.path) return
@@ -36,4 +40,4 @@ export function back(fallback = '/') {
   else navigate(fallback, { replace: true })
 }
 
-window.addEventListener('popstate', () => Object.assign(route, match(location.pathname)))
+window.addEventListener('popstate', () => Object.assign(route, match(location.pathname + location.search)))

@@ -62,7 +62,8 @@
   }
 
   const iconFor = (kind) =>
-    kind.startsWith('budget') ? I.target : kind === 'settlement' ? I.swap : kind === 'recurring' ? I.repeat : kind.startsWith('invite') ? I.userPlus : kind === 'group_expense' ? I.users : I.bell
+    kind.startsWith('budget') ? I.target : kind === 'settlement' ? I.swap : kind.startsWith('card_due') ? I.card :
+    kind.startsWith('rec_due') ? I.repeat : kind.startsWith('monthly') ? I.pie : kind === 'recurring' ? I.repeat : kind.startsWith('invite') ? I.userPlus : kind === 'group_expense' ? I.users : I.bell
   const empty = $derived(!app.invites.length && !app.payments.length && !app.inbox.length && !app.notifications.items.length)
 </script>
 

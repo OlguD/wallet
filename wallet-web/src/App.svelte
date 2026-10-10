@@ -10,6 +10,7 @@
   import TransferSheet from './components/TransferSheet.svelte'
   import Inbox from './pages/Inbox.svelte'
   import Budgets from './pages/Budgets.svelte'
+  import Report from './pages/Report.svelte'
   import { pendingTour } from './lib/tours.js'
   import Login from './pages/Login.svelte'
   import Home from './pages/Home.svelte'
@@ -28,8 +29,16 @@
   import { app, loadSession, signedOut, refresh, openAdd, toast } from './lib/store.svelte.js'
   import { takeSharedFile, uploadReceipt } from './lib/receipt.js'
   import { t, errorText } from './lib/i18n.js'
+  import { startLive, stopLive } from './lib/live.js'
 
   let splash = $state(true)
+
+  // Oturum açıkken canlı olay akışına bağlan; çıkışta kapat.
+  $effect(() => {
+    if (!app.user?.id) return
+    startLive(() => refresh().catch(() => {}))
+    return stopLive
+  })
 
   onMount(() => {
     setUnauthorizedHandler(signedOut)
@@ -92,7 +101,7 @@
     return () => clearTimeout(timer)
   })
 
-  const pages = { home: Home, transactions: Transactions, accounts: Accounts, account: AccountDetail, groups: Groups, group: GroupDetail, settings: Settings, goals: Goals, recurring: Recurring, rates: Rates, payees: Payees, inbox: Inbox, budgets: Budgets }
+  const pages = { home: Home, transactions: Transactions, accounts: Accounts, account: AccountDetail, groups: Groups, group: GroupDetail, settings: Settings, goals: Goals, recurring: Recurring, rates: Rates, payees: Payees, inbox: Inbox, budgets: Budgets, report: Report }
   const Page = $derived(pages[route.name] || Home)
 </script>
 

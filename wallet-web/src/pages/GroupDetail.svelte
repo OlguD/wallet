@@ -161,7 +161,7 @@
                 <span class="ico"><Icon d={I.swap} size={18} /></span>
                 <span class="grow">
                   <span class="title">{name(s.from_user_id, s.from_username)} → {name(s.to_user_id, s.to_username)}</span>
-                  <span class="sub">{dayLabel(s.occurred_at)}</span>
+                  <span class="sub">{dayLabel(s.occurred_at)}{s.affects_balance ? '' : ' · ' + t('pay.gift_tag')}</span>
                 </span>
                 <span class="amount">{fmtc(s.amount, s.currency)}</span>
                 {#if [s.from_user_id, s.to_user_id, s.created_by].includes(me)}

@@ -46,7 +46,7 @@
     <span class="ico" class:pos={incoming}><Icon d={incoming ? I.arrowDown : I.arrowUp} size={18} /></span>
     <span class="grow">
       <span class="title">{incoming ? t('pay.in_title', { name: p.from_username }) : t('pay.out_title', { name: p.to_username })}</span>
-      <span class="sub">{p.group_name} · {dayLabel(p.occurred_at)}</span>
+      <span class="sub">{p.group_name} · {dayLabel(p.occurred_at)}{p.affects_balance ? '' : ' · ' + t('pay.gift_tag')}</span>
     </span>
     <span class="amount num" class:pos={incoming}>{fmtc(p.amount, p.currency)}</span>
   </div>

@@ -27,6 +27,8 @@ type Notifier struct {
 	PublicKey  string
 	PrivateKey string
 	Subject    string
+
+	live live // açık uygulamalara canlı olaylar (live.go)
 }
 
 // Notice tek bir bildirim. RefID verilirse aynı (kullanıcı, tür, ref) için
@@ -70,6 +72,7 @@ RETURNING id`, x.UserID, x.Kind, x.Title, x.Body, x.URL, x.RefID).Scan(&id)
 		log.Println("notify insert:", err)
 		return
 	}
+	n.Ping(x.UserID)
 	if n.PushEnabled() {
 		go n.push(x)
 	}

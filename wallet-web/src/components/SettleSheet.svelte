@@ -24,6 +24,8 @@
   let accountId = $state(myAccounts[0]?.id ?? null)
   let currency = $state(s?.currency ?? app.accounts[0]?.currency ?? 'TRY')
   let accAmountText = $state('')
+  // Borca say: kapalıysa hediye/harçlık; grup borç durumu değişmez.
+  let affects = $state(true)
   let busy = $state(false)
 
   const account = $derived(app.accounts.find((a) => a.id === accountId))
@@ -46,6 +48,7 @@
         currency: cur,
         account_id: toAccount ? accountId : undefined,
         account_amount: cross ? parseAmount(accAmountText) || undefined : undefined,
+        affects_balance: free ? affects : true,
       })
       toast(free ? t('pay.sent', { name: toName }) : t('settle.saved'))
       refresh()
@@ -106,7 +109,13 @@
         {/if}
       {/if}
     {/if}
-    <p class="hint">{t('pay.hint')}</p>
+    {#if free}
+      <label class="toggle">
+        <input type="checkbox" bind:checked={affects} />
+        <span>{t('pay.affects')}</span>
+      </label>
+    {/if}
+    <p class="hint">{free && !affects ? t('pay.gift_hint') : t('pay.hint')}</p>
     <button class="btn" disabled={busy || !parseAmount(amount) || (free && !toId) || (cross && !parseAmount(accAmountText))}>{free ? t('pay.send') : t('common.save')}</button>
   </form>
 </Sheet>
