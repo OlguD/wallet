@@ -27,11 +27,13 @@ Kullanıcı adı küçük harfe çevrilir; 3-32 karakter, `a-z 0-9 _ . -`. Şifr
 | Metot | Yol | Gövde | Cevap |
 |---|---|---|---|
 | GET | `/accounts` | – | `[Account]` |
-| POST | `/accounts` | `{name, currency?, kind?}` (varsayılan `TRY`, `bank`) | 201 `Account` |
+| POST | `/accounts` | `{name, currency?, kind?, credit_limit?, due_day?, opening_debt?}` (varsayılan `TRY`, `bank`; son üçü sadece `card`) | 201 `Account` |
 | GET | `/accounts/{id}` | – | `Account` |
-| PATCH | `/accounts/{id}` | `{name?, kind?}` | `Account` |
+| PATCH | `/accounts/{id}` | `{name?, kind?, credit_limit?, due_day?}` (0 = temizle) | `Account` |
 | DELETE | `/accounts/{id}` | – | 204; işlemi/kuralı/hedefi varsa 409 |
 | GET | `/accounts/{id}/transactions` | – | `[Transaction]` (yeniden eskiye) |
+
+Kart hesapları (`kind: card`): borç negatif bakiyedir, kalan limit = `credit_limit + balance`. `opening_debt` kart açılırken `opening` kategorili bir gider olarak yazılır ve `/summary` toplamlarına sayılmaz. Borç ödemesi bankadan karta transferdir.
 
 `Account`: `{id, name, currency, kind, balance, created_at}` — `kind`: `bank` | `cash` | `card` | `savings`.
 

@@ -59,9 +59,14 @@ func validate(typ string, amount int64, occurredAt time.Time) error {
 	return nil
 }
 
+// CategoryOpening kart eklenirken girilen mevcut borç; gelir/gider
+// toplamlarına sayılmaz (Summary bunu dışarıda bırakır).
+const CategoryOpening = "opening"
+
 var categories = map[string]map[string]bool{
 	"expense": {"groceries": true, "bills": true, "transport": true, "food": true, "rent": true,
-		"subscription": true, "gift": true, "health": true, "shopping": true, "other": true},
+		"subscription": true, "gift": true, "health": true, "shopping": true, "other": true,
+		CategoryOpening: true},
 	"income": {"salary": true, "extra": true, "gift": true, "other": true},
 }
 

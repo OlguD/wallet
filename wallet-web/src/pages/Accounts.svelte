@@ -11,6 +11,7 @@
   import { fmt, fmtc, symbol } from '../lib/money.js'
   import { pocketColor } from '../lib/categories.js'
   import { convert } from '../lib/fx.js'
+  import { cardDebt, cardAvailable } from '../lib/cards.js'
   import { prefs } from '../lib/prefs.svelte.js'
   import { navigate } from '../lib/router.svelte.js'
   import { app, accountMonth } from '../lib/store.svelte.js'
@@ -46,7 +47,12 @@
         <button type="button" class="pocket rise" style="background: {col.bg}; color: {col.fg}; animation-delay: {i * 0.06}s" onclick={() => open(a)}>
           <span class="n">{a.name}</span>
           <span class="k">{t('acc.kind.' + a.kind)}</span>
-          <span class="b">{fmt(a.balance)} {symbol(a.currency)}</span>
+          {#if a.kind === 'card'}
+            <span class="b">{fmt(cardDebt(a))} {symbol(a.currency)}</span>
+            <span class="k">{t('card.debt')}{#if a.credit_limit} · {t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) })}{/if}</span>
+          {:else}
+            <span class="b">{fmt(a.balance)} {symbol(a.currency)}</span>
+          {/if}
           {#if a.currency !== 'TRY' && app.rates}<span class="k">{t('fx.approx', { v: fmtc(convert(a.balance, a.currency, 'TRY'), 'TRY') })}</span>{/if}
           <span class="k">{t('home.this_month', { v: fmtc(m.income - m.expense, a.currency, 'always') })}</span>
         </button>
@@ -57,13 +63,17 @@
       {#each app.accounts as a, i (a.id)}
         {@const m = accountMonth(a.id)}
         <button type="button" class="row rise" style="animation-delay: {i * 0.05}s" onclick={() => open(a)}>
-          <span class="ico"><Icon d={a.kind === 'cash' ? I.wallet : a.kind === 'savings' ? I.target : I.wallet} size={18} /></span>
+          <span class="ico"><Icon d={a.kind === 'card' ? I.card : a.kind === 'savings' ? I.target : I.wallet} size={18} /></span>
           <span class="grow">
             <span class="title">{a.name}</span>
-            <span class="sub">{t('acc.kind.' + a.kind)} · {t('home.this_month', { v: fmtc(m.income - m.expense, a.currency, 'always') })}</span>
+            {#if a.kind === 'card'}
+              <span class="sub">{t('card.debt')}{#if a.credit_limit} · {t('card.available_short', { v: fmtc(cardAvailable(a), a.currency) })}{/if}</span>
+            {:else}
+              <span class="sub">{t('acc.kind.' + a.kind)} · {t('home.this_month', { v: fmtc(m.income - m.expense, a.currency, 'always') })}</span>
+            {/if}
           </span>
           <span class="end">
-            <span class="amount">{fmt(a.balance)} {symbol(a.currency)}</span>
+            <span class="amount" class:neg={a.kind === 'card' && cardDebt(a) > 0}>{a.kind === 'card' ? fmt(cardDebt(a)) : fmt(a.balance)} {symbol(a.currency)}</span>
             {#if a.currency !== 'TRY' && app.rates}<span class="after">{t('fx.approx', { v: fmtc(convert(a.balance, a.currency, 'TRY'), 'TRY') })}</span>{/if}
           </span>
         </button>

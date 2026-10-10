@@ -5,12 +5,13 @@
   import AccountSheet from '../components/AccountSheet.svelte'
   import { I } from '../lib/icons.js'
   import { api } from '../lib/api.js'
-  import { t } from '../lib/i18n.js'
+  import { t, fullDate } from '../lib/i18n.js'
+  import { cardDebt, cardAvailable, cardUsedPct, nextDue, daysUntil } from '../lib/cards.js'
   import { fmt, fmtc, symbol } from '../lib/money.js'
   import { pocketColor } from '../lib/categories.js'
   import { prefs } from '../lib/prefs.svelte.js'
   import { route, back } from '../lib/router.svelte.js'
-  import { app, accountMonth, accountIndex, openAdd } from '../lib/store.svelte.js'
+  import { app, accountMonth, accountIndex, openAdd, openTransfer } from '../lib/store.svelte.js'
 
   const PAGE = 50
   let list = $state([])
@@ -20,6 +21,11 @@
   const account = $derived(app.accounts.find((a) => a.id === route.id))
   const m = $derived(accountMonth(route.id))
   const col = $derived(pocketColor(Math.max(0, accountIndex(route.id))))
+  const isCard = $derived(account?.kind === 'card')
+  const due = $derived(isCard ? nextDue(account.due_day) : null)
+  const dueIn = $derived(daysUntil(due))
+  // Borç ödemesi: aynı para birimindeki ilk kart dışı hesaptan karta transfer.
+  const payFrom = $derived(app.accounts.find((a) => a.kind !== 'card' && a.currency === account?.currency) || app.accounts.find((a) => a.kind !== 'card'))
 
   $effect(() => {
     app.version
@@ -48,10 +54,27 @@
   {#if account}
     <section class="hero" class:hero-c={prefs.theme === 'c'} style={prefs.theme === 'c' ? `background: ${col.bg}; color: ${col.fg}` : ''}>
       <span class="k">{t('acc.kind.' + account.kind)} · {account.currency}</span>
-      <span class="b">{fmt(account.balance)} <small>{symbol(account.currency)}</small></span>
+      {#if isCard}
+        <span class="k">{t('card.debt')}</span>
+        <span class="b">{fmt(cardDebt(account))} <small>{symbol(account.currency)}</small></span>
+        {#if account.credit_limit}
+          <span class="bar" class:hot={cardUsedPct(account) >= 80}><span style="width: {cardUsedPct(account)}%"></span></span>
+          <span class="k">{t('card.available')}: <b>{fmtc(cardAvailable(account), account.currency)}</b> · {t('card.limit_of', { v: fmtc(account.credit_limit, account.currency) })}</span>
+        {:else}
+          <span class="k">{t('card.no_limit')}</span>
+        {/if}
+        {#if due}
+          <span class="k">{t('card.due', { d: fullDate(due) })} · <b>{dueIn === 0 ? t('card.due_today') : t('card.days_left', { n: dueIn })}</b></span>
+        {/if}
+      {:else}
+        <span class="b">{fmt(account.balance)} <small>{symbol(account.currency)}</small></span>
+      {/if}
       <span class="k">{t('acc.month_in_out')}: <b>+{fmt(m.income)}</b> / <b>−{fmt(m.expense)}</b></span>
     </section>
-    <button type="button" class="btn ghost" onclick={() => openAdd({ accountId: account.id })}><Icon d={I.plus} size={18} stroke={2.2} />{t('nav.add')}</button>
+    {#if isCard && cardDebt(account) > 0 && payFrom}
+      <button type="button" class="btn" data-tour="card-pay" onclick={() => openTransfer({ fromId: payFrom.id, toId: account.id })}><Icon d={I.swap} size={18} />{t('card.pay')}</button>
+    {/if}
+    <button type="button" class="btn ghost" onclick={() => openAdd({ accountId: account.id })}><Icon d={I.plus} size={18} stroke={2.2} />{t(isCard ? 'card.add_spend' : 'nav.add')}</button>
   {/if}
 
   <section class="section">
@@ -91,6 +114,12 @@
     font-size: 24px;
     color: var(--muted2);
     font-weight: 500;
+  }
+  .bar {
+    margin: 6px 0 2px;
+  }
+  .bar.hot > span {
+    background: var(--expense);
   }
   .hero-c {
     border-radius: 26px;

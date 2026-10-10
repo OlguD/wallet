@@ -5,14 +5,38 @@
   import { api } from '../lib/api.js'
   import { GOAL_ICONS } from '../lib/categories.js'
   import { t, errorText } from '../lib/i18n.js'
-  import { parseAmount, kurusToKeypad, decimalSep, fmt, symbol } from '../lib/money.js'
-  import { app, toast } from '../lib/store.svelte.js'
+  import { parseAmount, kurusToKeypad, decimalSep, fmt, symbol, CURRENCIES } from '../lib/money.js'
+  import { app, toast, refresh } from '../lib/store.svelte.js'
 
   let { goal = null, onclose, onsaved, ondeleted } = $props()
 
   let name = $state(goal?.name || '')
   let icon = $state(goal?.icon || 'target')
+  // Hedefin para birimi, paranın durduğu hesabın para birimidir (ör. sterlinle
+  // alınacak araba → GBP hesap). Önce para birimi seçilir, hesaplar ona göre süzülür.
+  let currency = $state(goal?.currency ?? app.accounts[0]?.currency ?? 'TRY')
   let accountId = $state(goal?.account_id ?? app.accounts[0]?.id)
+  const inCurrency = $derived(app.accounts.filter((a) => a.currency === currency))
+
+  function pickCurrency(c) {
+    currency = c
+    if (!inCurrency.some((a) => a.id === accountId)) accountId = inCurrency[0]?.id
+  }
+
+  // Bu para biriminde hesap yoksa tek dokunuşla birikim hesabı aç.
+  async function createAccount() {
+    if (busy) return
+    busy = true
+    try {
+      const a = await api.post('/accounts', { name: t('goal.auto_account', { c: currency }), kind: 'savings', currency })
+      await refresh()
+      accountId = a.id
+    } catch (err) {
+      toast(errorText(err), 'err')
+    } finally {
+      busy = false
+    }
+  }
   let target = $state(goal ? kurusToKeypad(goal.target_amount).replace('.', decimalSep()) : '')
   let initial = $state('')
   let date = $state(goal?.target_date || '')
@@ -70,18 +94,31 @@
       </div>
     </div>
     <label class="field">
-      <span>{t('goal.target')}</span>
+      <span>{t('goal.target')}{#if !goal} ({symbol(currency)}){/if}</span>
       <input class="input num" bind:value={target} inputmode="decimal" placeholder="0" required />
     </label>
     {#if !goal}
-      <div class="field">
-        <span>{t('goal.account')}</span>
-        <div class="chips" style="margin: 0; padding: 0; flex-wrap: wrap">
-          {#each app.accounts as a}
-            <button type="button" class="chip small" aria-pressed={accountId === a.id} onclick={() => (accountId = a.id)}>{a.name}</button>
+      <div class="field" data-tour="goal-currency">
+        <span>{t('goal.currency')}</span>
+        <div class="chips" style="margin: 0; padding: 0">
+          {#each CURRENCIES as c}
+            <button type="button" class="chip small" aria-pressed={currency === c} onclick={() => pickCurrency(c)}>{c}</button>
           {/each}
         </div>
-        {#if account}<small class="muted">{t('goal.account_note', { acc: account.name, v: `${fmt(account.balance)} ${symbol(account.currency)}` })}</small>{/if}
+      </div>
+      <div class="field">
+        <span>{t('goal.account')}</span>
+        {#if inCurrency.length}
+          <div class="chips" style="margin: 0; padding: 0; flex-wrap: wrap">
+            {#each inCurrency as a}
+              <button type="button" class="chip small" aria-pressed={accountId === a.id} onclick={() => (accountId = a.id)}>{a.name}</button>
+            {/each}
+          </div>
+          {#if account}<small class="muted">{t('goal.account_note', { acc: account.name, v: `${fmt(account.balance)} ${symbol(account.currency)}` })}</small>{/if}
+        {:else}
+          <small class="muted">{t('goal.no_account', { c: currency })}</small>
+          <button type="button" class="btn ghost small" disabled={busy} onclick={createAccount}><Icon d={I.plus} size={16} stroke={2.2} />{t('goal.create_account', { c: currency })}</button>
+        {/if}
       </div>
       <label class="field">
         <span>{t('goal.initial')}</span>
@@ -92,7 +129,7 @@
       <span>{t('goal.date')}</span>
       <input class="input" type="date" bind:value={date} />
     </label>
-    <button class="btn" disabled={busy || !name.trim() || !parseAmount(target)}>{goal ? t('common.save') : t('common.create')}</button>
+    <button class="btn" disabled={busy || !name.trim() || !parseAmount(target) || (!goal && !account)}>{goal ? t('common.save') : t('common.create')}</button>
     {#if goal}<button type="button" class="btn danger" onclick={remove}>{t('common.delete')}</button>{/if}
   </form>
 </Sheet>

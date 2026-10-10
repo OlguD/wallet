@@ -522,6 +522,7 @@ SELECT a.currency,
 FROM transactions t
 JOIN accounts a ON a.id = t.account_id
 WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3 AND t.transfer_peer_id IS NULL
+  AND t.category IS DISTINCT FROM 'opening'
 GROUP BY a.currency
 ORDER BY a.currency`,
 		auth.UserID(r.Context()), from, to,
@@ -546,6 +547,7 @@ SELECT a.id,
        COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0)::bigint
 FROM accounts a
 LEFT JOIN transactions t ON t.account_id = a.id AND t.occurred_at >= $2 AND t.occurred_at < $3
+  AND t.category IS DISTINCT FROM 'opening'
 WHERE a.user_id = $1
 GROUP BY a.id
 ORDER BY a.id`,
@@ -566,6 +568,7 @@ SELECT a.currency, t.type::text, COALESCE(t.category, 'other'), SUM(t.amount)::b
 FROM transactions t
 JOIN accounts a ON a.id = t.account_id
 WHERE a.user_id = $1 AND t.occurred_at >= $2 AND t.occurred_at < $3 AND t.transfer_peer_id IS NULL
+  AND t.category IS DISTINCT FROM 'opening'
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 4 DESC`,
 		auth.UserID(r.Context()), from, to,

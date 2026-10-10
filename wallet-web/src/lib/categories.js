@@ -25,6 +25,7 @@ const all = {
   salary: INCOME_CATS[0], extra: INCOME_CATS[1],
   health: { id: 'health', icon: I.heart, tint: '#F9E0E0' },
   shopping: { id: 'shopping', icon: I.bag, tint: '#E8E1F7' },
+  opening: { id: 'opening', icon: I.card, tint: '#E6E2D8' },
 }
 
 export const catsFor = (type) => (type === 'income' ? INCOME_CATS : EXPENSE_CATS)

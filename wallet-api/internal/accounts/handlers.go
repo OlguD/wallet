@@ -39,16 +39,40 @@ type Account struct {
 	Kind      string    `json:"kind"`
 	Balance   int64     `json:"balance"`
 	CreatedAt time.Time `json:"created_at"`
+	// Sadece kartlarda: limit (kuruş) ve ayın kaçında son ödeme. Borç = -bakiye.
+	CreditLimit *int64 `json:"credit_limit"`
+	DueDay      *int   `json:"due_day"`
 }
 
 const selectAccount = `
-SELECT a.id, a.name, a.currency, a.kind, a.created_at, ` + ledger.BalanceSQL + `
+SELECT a.id, a.name, a.currency, a.kind, a.created_at, a.credit_limit, a.due_day, ` + ledger.BalanceSQL + `
 FROM accounts a`
 
 func scanAccount(row pgx.Row) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.Name, &a.Currency, &a.Kind, &a.CreatedAt, &a.Balance)
+	err := row.Scan(&a.ID, &a.Name, &a.Currency, &a.Kind, &a.CreatedAt, &a.CreditLimit, &a.DueDay, &a.Balance)
 	return a, err
+}
+
+// cardFields kart limitini ve son ödeme gününü doğrular. Kart olmayan hesapta
+// ikisi de temizlenir (nil).
+func cardFields(kind string, limit *int64, dueDay *int) (*int64, *int, error) {
+	if kind != "card" {
+		return nil, nil, nil
+	}
+	if limit != nil && *limit == 0 {
+		limit = nil
+	}
+	if limit != nil && (*limit < 0 || *limit > ledger.MaxAmount) {
+		return nil, nil, httpx.BadRequest("kart limiti pozitif olmali")
+	}
+	if dueDay != nil && *dueDay == 0 {
+		dueDay = nil
+	}
+	if dueDay != nil && (*dueDay < 1 || *dueDay > 31) {
+		return nil, nil, httpx.BadRequest("son odeme gunu 1-31 arasinda olmali")
+	}
+	return limit, dueDay, nil
 }
 
 func validName(name string) (string, bool) {
@@ -102,9 +126,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createRequest struct {
-	Name     string  `json:"name"`
-	Currency string  `json:"currency"`
-	Kind     *string `json:"kind"`
+	Name        string  `json:"name"`
+	Currency    string  `json:"currency"`
+	Kind        *string `json:"kind"`
+	CreditLimit *int64  `json:"credit_limit"`
+	DueDay      *int    `json:"due_day"`
+	// OpeningDebt kart eklenirken mevcut borç (kuruş). "Açılış borcu" işlemi
+	// olarak yazılır; gelir/gider toplamlarına sayılmaz (kategori opening).
+	OpeningDebt int64 `json:"opening_debt"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -132,11 +161,37 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a := Account{Name: name, Currency: currency, Kind: kind}
-	err := h.DB.QueryRow(r.Context(),
-		"INSERT INTO accounts (user_id, name, currency, kind) VALUES ($1, $2, $3, $4) RETURNING id, created_at",
-		auth.UserID(r.Context()), name, currency, kind,
-	).Scan(&a.ID, &a.CreatedAt)
+	limit, dueDay, err := cardFields(kind, req.CreditLimit, req.DueDay)
+	if err != nil {
+		httpx.Fail(w, "account create", err)
+		return
+	}
+	if req.OpeningDebt != 0 {
+		if kind != "card" {
+			httpx.WriteError(w, http.StatusBadRequest, "acilis borcu sadece kartlarda kullanilabilir")
+			return
+		}
+		if err := ledger.ValidateAmount(req.OpeningDebt); err != nil {
+			httpx.Fail(w, "account create", err)
+			return
+		}
+	}
+
+	ctx := r.Context()
+	userID := auth.UserID(ctx)
+	tx, err := h.DB.Begin(ctx)
+	if err != nil {
+		httpx.ServerError(w, "account create begin", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var id int
+	err = tx.QueryRow(ctx,
+		`INSERT INTO accounts (user_id, name, currency, kind, credit_limit, due_day)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		userID, name, currency, kind, limit, dueDay,
+	).Scan(&id)
 	if isUniqueViolation(err) {
 		httpx.WriteError(w, http.StatusConflict, "bu isimde bir hesabiniz zaten var")
 		return
@@ -145,15 +200,39 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.ServerError(w, "account create", err)
 		return
 	}
+	if req.OpeningDebt > 0 {
+		cat, desc := ledger.CategoryOpening, "Açılış borcu"
+		_, err = ledger.Create(ctx, tx, userID, ledger.Input{
+			AccountID: id, Type: "expense", Amount: req.OpeningDebt,
+			Category: &cat, Description: &desc, OccurredAt: time.Now(),
+		})
+		if err != nil {
+			httpx.Fail(w, "account opening debt", err)
+			return
+		}
+	}
+	a, err := scanAccount(tx.QueryRow(ctx, selectAccount+" WHERE a.id = $1", id))
+	if err != nil {
+		httpx.ServerError(w, "account create get", err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httpx.ServerError(w, "account create commit", err)
+		return
+	}
 	httpx.WriteJSON(w, http.StatusCreated, a)
 }
 
 type updateRequest struct {
-	Name *string `json:"name"`
-	Kind *string `json:"kind"`
+	Name        *string `json:"name"`
+	Kind        *string `json:"kind"`
+	CreditLimit *int64  `json:"credit_limit"`
+	DueDay      *int    `json:"due_day"`
 }
 
-// Update hesap adını ve türünü değiştirir; para birimi değiştirilemez.
+// Update hesap adını, türünü ve kart bilgilerini değiştirir; para birimi
+// değiştirilemez. Kart bilgileri gönderilmezse korunur, 0 gönderilirse
+// temizlenir; tür kart olmaktan çıkarsa ikisi de silinir.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	id, ok := httpx.PathID(w, r, "id")
 	if !ok {
@@ -178,11 +257,21 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Kart alanları türden bağımsız doğrulanır; tür kart değilse SQL temizler.
+	setLimit, setDue := req.CreditLimit != nil, req.DueDay != nil
+	limit, dueDay, err := cardFields("card", req.CreditLimit, req.DueDay)
+	if err != nil {
+		httpx.Fail(w, "account update", err)
+		return
+	}
 
 	tag, err := h.DB.Exec(r.Context(), `
-UPDATE accounts SET name = COALESCE($1, name), kind = COALESCE($2, kind), updated_at = now()
+UPDATE accounts SET name = COALESCE($1, name), kind = COALESCE($2, kind),
+  credit_limit = CASE WHEN COALESCE($2, kind) <> 'card' THEN NULL WHEN $5 THEN $6 ELSE credit_limit END,
+  due_day = CASE WHEN COALESCE($2, kind) <> 'card' THEN NULL WHEN $7 THEN $8 ELSE due_day END,
+  updated_at = now()
 WHERE id = $3 AND user_id = $4`,
-		name, req.Kind, id, auth.UserID(r.Context()),
+		name, req.Kind, id, auth.UserID(r.Context()), setLimit, limit, setDue, dueDay,
 	)
 	if isUniqueViolation(err) {
 		httpx.WriteError(w, http.StatusConflict, "bu isimde bir hesabiniz zaten var")

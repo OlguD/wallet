@@ -31,6 +31,8 @@ export const TOURS = [
       { target: 'nav-transactions', title: 'tour.search.title', body: 'tour.search.body' },
       { target: 'settings', title: 'tour.security.title', body: 'tour.security.body' },
       { title: 'tour.offline.title', body: 'tour.offline.body' },
+      { target: 'nav-accounts', title: 'tour.cards.title', body: 'tour.cards.body' },
+      { target: 'goals', title: 'tour.goalfx.title', body: 'tour.goalfx.body' },
       { title: 'tour.done.title', body: 'tour.done.body' },
     ],
   },
@@ -46,6 +48,15 @@ export const TOURS = [
       { target: 'nav-transactions', title: 'tour.search.title', body: 'tour.search.body' },
       { target: 'settings', title: 'tour.security.title', body: 'tour.security.body' },
       { title: 'tour.offline.title', body: 'tour.offline.body' },
+    ],
+  },
+  // 2026-10-10 (öğleden sonra): kredi kartı limit/borç takibi, dövizli birikim hedefi.
+  {
+    id: 'cards-goal-currency',
+    steps: [
+      { title: 'tour.update.title', body: 'tour.update.body' },
+      { target: 'nav-accounts', title: 'tour.cards.title', body: 'tour.cards.body' },
+      { target: 'goals', title: 'tour.goalfx.title', body: 'tour.goalfx.body' },
     ],
   },
 ]
