@@ -17,6 +17,7 @@
   import { prefs } from '../lib/prefs.svelte.js'
   import { navigate } from '../lib/router.svelte.js'
   import { app, totals, monthTotals, accountMonth, inboxCount } from '../lib/store.svelte.js'
+  import PushPrompt from '../components/PushPrompt.svelte'
 
   let recent = $state([])
   let monthOpen = $state(false)
@@ -101,6 +102,8 @@
 
 <div class="page home-{prefs.theme}">
   {@render header()}
+
+  <PushPrompt />
 
   {#if app.inbox.length}
     <button type="button" class="card inbox rise" onclick={() => navigate('/inbox')}>

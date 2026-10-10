@@ -152,9 +152,24 @@
     <div class="card sc">
       <p>{t('push.what')}</p>
       {#if push === 'unsupported'}
-        <p class="muted">{needsInstall() ? t('push.ios_hint') : t('push.unsupported')}</p>
+        {#if needsInstall()}
+          <p class="muted">{t('push.ios_hint')}</p>
+          <ol class="steps">
+            <li>{t('pp.install1')}</li>
+            <li>{t('pp.install2')}</li>
+            <li>{t('pp.install3')}</li>
+            <li>{t('pp.install4')}</li>
+          </ol>
+        {:else}
+          <p class="muted">{t('push.unsupported')}</p>
+        {/if}
       {:else if push === 'denied'}
         <p class="warn">{t('push.denied')}</p>
+        <ol class="steps">
+          <li>{t('pp.denied1')}</li>
+          <li>{t('pp.denied2')}</li>
+          <li>{t('pp.denied3')}</li>
+        </ol>
       {:else}
         {#if push === 'on'}<p class="muted"><Icon d={I.check} size={14} /> {t('push.enabled')}</p>{/if}
         <div class="row-btns">
@@ -325,5 +340,13 @@
   .install :global(svg) {
     flex: 0 0 auto;
     color: var(--fg);
+  }
+  .steps {
+    margin: 0;
+    padding-left: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 14px;
   }
 </style>
