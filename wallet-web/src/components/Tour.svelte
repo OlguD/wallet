@@ -16,13 +16,15 @@
   let rect = $state(null) // spot ışığı (viewport koordinatları)
   let card = $state()
   let cardTop = $state(0)
-  let vh = $state(window.innerHeight)
+  // iOS ana ekran modunda innerHeight kısa gelebiliyor; kabuğun gerçek yüksekliği.
+  const appHeight = () => document.getElementById('app')?.clientHeight || window.innerHeight
+  let vh = $state(appHeight())
 
   const step = $derived(steps[i])
   const PAD = 8
 
   async function measure() {
-    vh = window.innerHeight
+    vh = appHeight()
     const el = step?.target ? document.querySelector(`[data-tour="${step.target}"]`) : null
     if (!el) {
       rect = null
@@ -100,7 +102,7 @@
 
 <style>
   .tour {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: 60;
   }

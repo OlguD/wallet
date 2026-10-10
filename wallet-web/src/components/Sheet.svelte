@@ -28,13 +28,13 @@
 
 <style>
   .overlay {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: 40;
     background: var(--overlay);
   }
   .sheet {
-    position: fixed;
+    position: absolute;
     z-index: 41;
     left: 0;
     right: 0;

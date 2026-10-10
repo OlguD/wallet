@@ -19,7 +19,7 @@
 
 <style>
   .splash {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: 100;
     background: var(--bg);

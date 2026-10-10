@@ -34,7 +34,7 @@
 
 <style>
   .nav {
-    position: fixed;
+    position: absolute;
     z-index: 20;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));

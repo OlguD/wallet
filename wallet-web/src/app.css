@@ -129,6 +129,23 @@ body,
   height: 100%;
   overflow: hidden;
 }
+/* Alta/tam ekrana yapışan katmanlar (menü, paneller, tur) #app'e göre
+   absolute konumlanır; #app kaymadığı için fixed ile aynı davranır. */
+#app {
+  position: relative;
+}
+/* iOS 26 ana ekran modunda viewport (100%/dvh/innerHeight) durum çubuğu
+   kadar kısa bildiriliyor; fixed bottom: 0 menü en altta değil, üstünde
+   boş bir bant kalıyordu. Kabuk ekranın tamamı (lvh) kadar uzatılır. */
+@media (display-mode: standalone) {
+  @supports (-webkit-touch-callout: none) and (height: 100lvh) {
+    html,
+    body,
+    #app {
+      height: 100lvh;
+    }
+  }
+}
 html {
   -webkit-text-size-adjust: 100%;
   background: var(--bg);
